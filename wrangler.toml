@@ -15,4 +15,4 @@ pages_build_output_dir = "."
 [[d1_databases]]
 binding = "DB"
 database_name = "dziokeris"
-database_id = "REPLACE_AFTER_d1_create"
+database_id = "b2643e1b-c212-4341-abc3-9f780ce188e7"
