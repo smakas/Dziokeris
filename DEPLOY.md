@@ -1,3 +1,20 @@
+## ✅ STATUS: DEPLOYED (2026-07-28)
+
+The game is **live at https://dziokeris.pages.dev** with the database attached and
+score tracking working. Code is on GitHub at `smakas/Dziokeris`.
+
+**To publish future changes**, just double-click **`deploy.cmd`** (or run `deploy`
+in this folder). It rebuilds the static files and uploads to Cloudflare in ~10s.
+Keep GitHub in sync too, so your history is saved:
+
+```bash
+git add . && git commit -m "what changed" && git push
+```
+
+The steps below are the original first-time setup, kept for reference.
+
+---
+
 # Deploy Džiokeris to the cloud — step by step
 
 Everything here is **free** and needs **no credit card**. Run every command

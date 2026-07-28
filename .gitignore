@@ -11,6 +11,7 @@
 node_modules/
 .wrangler/
 dist/
+.pages-dist/
 
 # ── OS / editor cruft ────────────────────────────────
 Thumbs.db

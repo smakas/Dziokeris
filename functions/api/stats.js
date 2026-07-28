@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════
 
 const json = (obj, status = 200) =>
-  new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json' } });
+  new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 
 export async function onRequestGet({ env }) {
   if (!env.DB) return json({ error: 'no database bound' }, 503);
