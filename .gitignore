@@ -1,0 +1,25 @@
+# ── secrets & local data (NEVER commit) ──────────────
+*.db
+*.db-*
+*.sqlite
+*_tokens.json
+.env
+.env.*
+.dev.vars
+
+# ── dependencies & build ─────────────────────────────
+node_modules/
+.wrangler/
+dist/
+
+# ── OS / editor cruft ────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store
+*.log
+
+# ── local tooling config (not for a public repo) ─────
+.claude/
+
+# ── keep the v1 fallback out of the new repo ─────────
+archive/

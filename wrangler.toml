@@ -1,0 +1,18 @@
+# ═══════════════════════════════════════════════════
+# Cloudflare configuration for the Džiokeris Pages project.
+# The static app (index.html + src/) is served from the repo root;
+# API routes live in functions/ ; game data persists in D1.
+# ═══════════════════════════════════════════════════
+
+name = "dziokeris"
+compatibility_date = "2026-07-01"
+pages_build_output_dir = "."
+
+# D1 database binding. `database_id` is filled in after you run:
+#   npx wrangler d1 create dziokeris
+# For local development (npx wrangler pages dev) a local SQLite file is used
+# automatically and database_id may stay as the placeholder.
+[[d1_databases]]
+binding = "DB"
+database_name = "dziokeris"
+database_id = "REPLACE_AFTER_d1_create"

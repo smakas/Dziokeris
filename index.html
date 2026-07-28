@@ -1,0 +1,270 @@
+﻿<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Džiokeris</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f0;color:#222;overflow:hidden;}
+#app{display:flex;flex-direction:column;height:100vh;max-width:1320px;margin:0 auto;padding:6px;gap:5px;}
+
+/* Header */
+#header{display:flex;align-items:center;gap:10px;background:#fff;border-radius:8px;padding:5px 12px;border:1px solid #dde;flex-shrink:0;}
+#header h1{font-size:1.15rem;color:#2a5;letter-spacing:1px;white-space:nowrap;}
+#score-bar{display:flex;gap:10px;}
+.se{text-align:center;min-width:55px;}
+.se .sn{font-size:0.68rem;font-weight:700;color:#777;}
+.se .sv{font-size:0.95rem;font-weight:700;color:#333;}
+.se.danger .sv{color:#c33;}
+.se.active-p .sn{color:#2a5;font-weight:900;}
+.se.active-p .sv{color:#2a5;}
+#candy-lbl{font-size:0.82rem;color:#a60;font-weight:700;white-space:nowrap;}
+#wins-lbl{font-size:0.75rem;color:#448;background:#eef;padding:2px 8px;border-radius:10px;white-space:nowrap;}
+#header-right{margin-left:auto;display:flex;gap:6px;align-items:center;}
+.hbtn{font-size:0.7rem;padding:2px 8px;border-radius:5px;border:1px solid #ccd;background:#f8f8ff;cursor:pointer;color:#446;}
+.hbtn:hover{background:#eef;}
+
+/* Main */
+#main{display:flex;flex:1;gap:5px;min-height:0;}
+#left-col{width:170px;flex-shrink:0;display:flex;flex-direction:column;gap:5px;overflow-y:auto;}
+#center-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;}
+#right-col{width:195px;flex-shrink:0;display:flex;flex-direction:column;gap:5px;}
+
+/* Panel */
+.panel{background:#fff;border-radius:7px;border:1px solid #dde;padding:7px;}
+.ptitle{font-size:0.65rem;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;}
+
+/* Opponents */
+.opp-panel{transition:border-color 0.3s;}
+.opp-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;}
+.opp-name{font-weight:700;font-size:0.8rem;}
+.opp-ct{font-size:0.68rem;color:#bbb;}
+.opp-hand{display:flex;flex-wrap:wrap;gap:2px;margin-bottom:3px;}
+.opp-combos{display:flex;flex-wrap:wrap;gap:3px;}
+.opp-combo{display:flex;gap:1px;padding:2px 3px;background:#f8fff8;border-radius:3px;border:1px solid #cdc;}
+.ai-bar-wrap{height:3px;background:#f0f0f0;border-radius:2px;margin-top:3px;overflow:hidden;display:none;}
+.ai-bar{height:100%;background:#f0a500;border-radius:2px;width:0%;}
+#skip-btn{display:none;font-size:0.68rem;padding:1px 7px;background:#fff8e8;border:1px solid #f0c040;border-radius:4px;cursor:pointer;color:#a60;margin-left:auto;}
+#skip-btn.show{display:inline-block;}
+
+/* Piles */
+#piles-row{display:flex;gap:10px;align-items:flex-end;padding:7px 10px;background:#fff;border-radius:7px;border:1px solid #dde;flex-shrink:0;}
+.pile-wrap{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;}
+.pile-label{font-size:0.65rem;color:#aaa;}
+.pile-wrap.live:hover .card{border-color:#2a5;box-shadow:0 0 0 2px #2a550;}
+.pile-wrap.active-pile .card{border-color:#2a5 !important;box-shadow:0 0 0 3px #2a560 !important;}
+#discard-notif{display:none;font-size:0.75rem;font-weight:700;color:#c60;background:#fff8e0;border:1px solid #f0c040;padding:3px 8px;border-radius:6px;animation:popIn 0.25s ease;}
+@keyframes popIn{from{opacity:0;transform:scale(0.85)}to{opacity:1;transform:scale(1)}}
+.pile-count{font-size:0.65rem;color:#ccc;}
+
+/* Table */
+#table-wrap{flex:1;min-height:0;background:#f5faf5;border-radius:7px;border:1px solid #cdc;padding:7px;overflow-y:auto;}
+#table-hdr{display:flex;align-items:center;gap:5px;margin-bottom:5px;}
+#table-lbl{font-size:0.65rem;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:1px;}
+#combos-row{display:flex;flex-wrap:wrap;gap:7px;align-items:flex-start;}
+.combo-grp{display:flex;gap:2px;padding:5px 6px;background:#fff;border-radius:6px;border:1px solid #cdc;position:relative;cursor:pointer;transition:border-color 0.15s;}
+.combo-grp:hover{border-color:#aac;}
+.combo-grp.drag-tgt{border-color:#2a5 !important;background:#f0fff4 !important;box-shadow:0 0 0 2px #2a560 !important;}
+@keyframes glowInvalid{from{box-shadow:0 0 4px 2px #c3300050;}to{box-shadow:0 0 16px 6px #c33000b0;}}
+.combo-grp.invalid-grp{border-color:#c33 !important;background:#fff5f5 !important;animation:glowInvalid 0.75s ease-in-out infinite alternate;}
+@keyframes glowValid{from{box-shadow:0 0 4px 2px #2a520050;}to{box-shadow:0 0 14px 6px #2a5200a0;}}
+.combo-grp.valid-grp{border-color:#2a5 !important;background:#f0fff4 !important;animation:glowValid 0.9s ease-in-out infinite alternate;}
+.combo-grp .card.tdragging{opacity:0.25;}
+#new-combo-zone{min-width:54px;min-height:65px;border:2px dashed #ccc;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:0.68rem;cursor:pointer;transition:all 0.15s;padding:4px;}
+#new-combo-zone.drag-tgt{border-color:#2a5;color:#2a5;background:#f0fff4;}
+.combo-grp.target{border-color:#2a5 !important;box-shadow:0 0 0 2px #2a550;}
+.combo-grp .owner-tag{position:absolute;top:-8px;left:5px;font-size:0.55rem;background:#f5faf5;padding:0 3px;color:#aaa;white-space:nowrap;}
+.combo-grp .card{width:43px;height:61px;font-size:0.78rem;}
+.combo-grp .card.stageable{cursor:pointer;}
+.combo-grp .card.stageable:hover{border-color:#f60 !important;transform:translateY(-5px) !important;box-shadow:0 4px 12px #f603 !important;}
+
+/* Staging */
+#staging-wrap{display:none;padding:6px 8px;background:#fffbe6;border-radius:7px;border:2px dashed #f0a500;flex-shrink:0;}
+#staging-wrap.on{display:block;}
+#staging-hdr{font-size:0.68rem;font-weight:700;color:#a60;margin-bottom:4px;}
+#staging-cards{display:flex;flex-wrap:wrap;gap:3px;min-height:30px;}
+
+/* Hand */
+#hand-wrap{background:#fff;border-radius:7px;border:2px solid #2a5;padding:7px;flex-shrink:0;}
+#hand-hdr{display:flex;align-items:center;gap:5px;margin-bottom:5px;flex-wrap:wrap;}
+#hand-lbl{font-size:0.65rem;font-weight:700;color:#2a5;text-transform:uppercase;letter-spacing:1px;}
+.pts-badge{font-size:0.72rem;background:#2a5;color:#fff;padding:1px 7px;border-radius:10px;}
+.pts-badge.hot{background:#c33;}
+#hand-cards{display:flex;flex-wrap:wrap;gap:3px;min-height:68px;align-items:flex-end;}
+.card.dragging{opacity:0.3;transform:scale(0.92);}
+.card.drag-over{border-left:3px solid #f60 !important;}
+
+/* Controls */
+#ctrl{display:flex;gap:5px;flex-wrap:wrap;align-items:center;background:#fff;border-radius:7px;border:1px solid #dde;padding:6px 9px;flex-shrink:0;}
+.btn{padding:5px 11px;border-radius:5px;border:none;cursor:pointer;font-size:0.8rem;font-weight:600;transition:all 0.12s;white-space:nowrap;}
+.btn:disabled{opacity:0.32;cursor:not-allowed;}
+.bg{background:#2a5;color:#fff;} .bg:hover:not(:disabled){background:#1a4;}
+.bb{background:#46a;color:#fff;} .bb:hover:not(:disabled){background:#35a;}
+.bo{background:#e60;color:#fff;} .bo:hover:not(:disabled){background:#c50;}
+.br{background:#c33;color:#fff;} .br:hover:not(:disabled){background:#a22;}
+.bw{background:#eef;color:#447;border:1px solid #bbd;} .bw:hover:not(:disabled){background:#ddf;}
+#phase-lbl{font-size:0.75rem;color:#888;font-style:italic;flex:1;}
+
+/* Cards */
+.card{width:51px;height:73px;border-radius:6px;border:2px solid #ccc;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:700;user-select:none;position:relative;transition:transform 0.1s,box-shadow 0.1s,border-color 0.15s;flex-shrink:0;}
+.card.clickable{cursor:pointer;}
+.card.clickable:hover{transform:translateY(-3px);box-shadow:0 4px 10px #0003;}
+.card.sel{transform:translateY(-10px) !important;border-color:#2a5 !important;box-shadow:0 0 0 3px #2a560 !important;}
+.card.new-c{border-color:#f0a500 !important;animation:glowNew 1.2s ease-in-out infinite alternate;}
+@keyframes glowNew{from{box-shadow:0 0 2px 1px #f0a50050;}to{box-shadow:0 0 9px 4px #f0a500a0;}}
+.card.back{background:repeating-linear-gradient(135deg,#4a6fa5,#4a6fa5 4px,#3a5f95 4px,#3a5f95 8px);border-color:#3a5f95;cursor:default;}
+.card.back:hover{transform:none;box-shadow:none;}
+.red{color:#c22;} .blk{color:#111;} .club{color:#1a3a8f;} .jkr{color:#800080;}
+.ctl{position:absolute;top:2px;left:4px;font-size:0.54rem;line-height:1.2;text-align:left;}
+.cbr{position:absolute;bottom:2px;right:4px;font-size:0.54rem;line-height:1.2;text-align:right;transform:rotate(180deg);}
+.cr{font-size:0.92rem;line-height:1;}
+.cs{font-size:1.3rem;line-height:1;}
+
+/* Turn banner */
+#turn-banner{text-align:center;font-size:0.85rem;font-weight:700;padding:5px 14px;border-radius:7px;flex-shrink:0;transition:all 0.3s;}
+#turn-banner.my-turn{background:#e8f9ee;color:#1a4;border:2px solid #2a5;animation:pulseG 1.6s ease-in-out infinite;}
+#turn-banner.ai-turn{background:#fff8e8;color:#a60;border:2px solid #f0a500;}
+#turn-banner.round-over{background:#f5f5f5;color:#aaa;border:1px solid #ddd;}
+@keyframes pulseG{0%,100%{box-shadow:0 0 0 0 #2a5200;}60%{box-shadow:0 0 0 5px #2a5240;}}
+/* Opponent status label */
+.opp-status{font-size:0.67rem;color:#e60;font-style:italic;min-height:13px;margin-top:1px;transition:opacity 0.3s;}
+/* Flying card */
+.fly{position:fixed;pointer-events:none;z-index:9999;border-radius:6px;border:2px solid #ccc;background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;transition:left 0.65s cubic-bezier(.25,.46,.45,.94),top 0.65s cubic-bezier(.25,.46,.45,.94),opacity 0.65s,width 0.65s,height 0.65s;}
+
+/* Coach */
+#coach-log{display:flex;flex-direction:column;gap:4px;overflow-y:auto;flex:1;min-height:0;}
+.cm{font-size:0.75rem;padding:5px 7px;border-radius:5px;line-height:1.4;}
+.cm-info{background:#f0f4ff;border-left:3px solid #669;color:#334;}
+.cm-tip{background:#fffbe6;border-left:3px solid #f0a500;color:#553;}
+.cm-good{background:#f0fff0;border-left:3px solid #2a5;color:#243;}
+.cm-warn{background:#fff0f0;border-left:3px solid #c33;color:#533;}
+
+/* Overlay */
+#overlay{display:none;position:fixed;inset:0;background:#0007;z-index:500;align-items:center;justify-content:center;}
+#overlay.on{display:flex;}
+#ovbox{background:#fff;border-radius:12px;padding:22px 30px;max-width:460px;width:92%;box-shadow:0 8px 32px #0005;text-align:center;}
+#ovbox h2{color:#2a5;margin-bottom:8px;}
+#ovbody{color:#555;line-height:1.65;margin-bottom:14px;white-space:pre-wrap;text-align:left;font-size:0.88rem;}
+.ovbtns{display:flex;gap:7px;justify-content:center;}
+/* Glow for newly placed cards */
+@keyframes glowAdded{from{box-shadow:0 0 4px 2px #f0a50060;}to{box-shadow:0 0 14px 6px #f0a500a0;}}
+.card.glow-new{animation:glowAdded 0.9s ease-in-out infinite alternate !important;border-color:#f0a500 !important;}
+/* Treneris tabs */
+.tab-btn{font-size:0.65rem;padding:2px 6px;border-radius:4px;border:1px solid #dde;background:#f8f8ff;cursor:pointer;color:#446;flex:1;font-weight:600;transition:all 0.15s;}
+.tab-btn.active{background:#2a5;color:#fff;border-color:#2a5;}
+#game-log{display:flex;flex-direction:column;gap:3px;overflow-y:auto;flex:1;min-height:0;}
+.log-entry{font-size:0.69rem;padding:4px 6px;border-radius:4px;border-left:2px solid #bbd;color:#334;line-height:1.4;background:#f8f8ff;position:relative;}
+.log-entry.log-my{border-left-color:#2a5;background:#f0fff4;}
+.log-entry.log-ai{border-left-color:#f0a500;background:#fffbe6;}
+.log-entry .log-cmt{font-size:0.62rem;color:#888;font-style:italic;margin-top:2px;}
+.log-btn{font-size:0.58rem;padding:1px 5px;border-radius:3px;border:1px solid #bbd;background:#fff;cursor:pointer;color:#446;}
+/* Discard pile stacked look */
+#disc-pile-wrap{position:relative;width:51px;height:73px;flex-shrink:0;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="header">
+    <h1>🃏 Džiokeris</h1>
+    <div id="score-bar"></div>
+    <div id="header-right">
+      <span id="candy-lbl">🍬 0</span>
+      <span id="wins-lbl">🏆 0</span>
+      <span id="skip-btn" onclick="skipAI()">⏩ Praleisti</span>
+      <button class="hbtn" id="speed-btn" onclick="toggleSpeed()" title="Žmogaus greitis (iki 10 sek. ėjimas)">🐢 Žmogus</button>
+      <button class="hbtn" onclick="confirmNewGame()">↺ Naujas</button>
+    </div>
+  </div>
+
+  <div id="main">
+
+    <!-- Left: opponents -->
+    <div id="left-col">
+      <div class="panel opp-panel" id="opp0p">
+        <div class="opp-hdr"><span class="opp-name" id="opp0n">Rytas</span><span class="opp-ct" id="opp0c"></span></div>
+        <div class="opp-hand" id="opp0h"></div>
+        <div class="opp-combos" id="opp0cb"></div>
+        <div class="opp-status" id="opp0status"></div><div class="ai-bar-wrap" id="opp0bw"><div class="ai-bar" id="opp0bar"></div></div>
+      </div>
+      <div class="panel opp-panel" id="opp1p">
+        <div class="opp-hdr"><span class="opp-name" id="opp1n">Vakaras</span><span class="opp-ct" id="opp1c"></span></div>
+        <div class="opp-hand" id="opp1h"></div>
+        <div class="opp-combos" id="opp1cb"></div>
+        <div class="opp-status" id="opp1status"></div><div class="ai-bar-wrap" id="opp1bw"><div class="ai-bar" id="opp1bar"></div></div>
+      </div>
+    </div>
+
+    <!-- Center -->
+    <div id="center-col">
+
+      <div id="piles-row">
+        <div class="pile-wrap" id="deck-wrap" onclick="playerDraw('deck')">
+          <div class="card back" id="deck-el"></div>
+          <div class="pile-label">Malka</div>
+          <div class="pile-count" id="deck-ct"></div>
+        </div>
+        <div class="pile-wrap" id="disc-wrap" onclick="playerDraw('discard')">
+          <div id="disc-pile-wrap">
+            <div class="card" id="disc-prev" style="position:absolute;top:4px;left:-6px;transform:rotate(-8deg);pointer-events:none;width:51px;height:73px;font-size:0.78rem;z-index:0;display:none"></div>
+            <div class="card" id="disc-el" style="position:relative;z-index:1"></div>
+          </div>
+          <div class="pile-label">Atversta</div>
+        </div>
+        <div id="discard-notif"></div>
+        <div style="flex:1"></div>
+        <div style="font-size:0.72rem;color:#bbb;text-align:right;line-height:1.75" id="round-lbl"></div>
+      </div>
+
+      <div id="turn-banner" class="round-over">—</div>
+      <div id="table-wrap">
+        <div id="table-hdr">
+          <span id="table-lbl">Stalas</span>
+
+        </div>
+        <div id="combos-row"></div>
+      </div>
+
+
+
+      <div id="hand-wrap">
+        <div id="hand-hdr">
+          <span id="hand-lbl">Jūsų rankoje</span>
+          <span class="pts-badge" id="hand-pts">0 ak.</span>
+        </div>
+        <div id="hand-cards"></div>
+      </div>
+
+      <div id="ctrl">
+        <span id="phase-lbl">—</span>
+        <button class="btn bg" id="btn-lay" onclick="doLay()" disabled>▶ Dėti</button>
+        <button class="btn bb" id="btn-add" onclick="doAdd()" disabled>+ Pridėti</button>
+        <button class="btn br" id="btn-disc" onclick="doDiscard()" disabled>↓ Išmesti</button>
+        <button class="btn bw" id="btn-hint" onclick="showHint()">💡</button>
+        <button class="btn bw" id="btn-undo" onclick="undoLast()" disabled title="Atšaukti paskutinį ėjimą">↩</button>
+      </div>
+
+    </div>
+
+    <!-- Right: coach + log -->
+    <div class="panel" id="right-col" style="display:flex;flex-direction:column;">
+      <div style="display:flex;gap:4px;margin-bottom:5px;flex-shrink:0;">
+        <button class="tab-btn active" id="tab-coach" onclick="switchTab('coach')">🧠 Treneris</button>
+        <button class="tab-btn" id="tab-log" onclick="switchTab('log')">📋 Žurnalas</button>
+      </div>
+      <div id="coach-pane" style="display:flex;flex-direction:column;flex:1;min-height:0;overflow-y:auto;">
+        <div id="coach-log"></div>
+      </div>
+      <div id="log-pane" style="display:none;flex-direction:column;flex:1;min-height:0;">
+        <div id="game-log"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="overlay"><div id="ovbox"><h2 id="ovtitle"></h2><div id="ovbody"></div><div class="ovbtns" id="ovbtns"></div></div></div>
+<script type="module" src="./src/ui/app.js"></script>
+</body>
+</html>

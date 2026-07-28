@@ -1,0 +1,9 @@
+# Normalise line endings: store text as LF in the repo, check out natively.
+# Stops the "LF will be replaced by CRLF" warnings and keeps the public repo
+# consistent regardless of who clones it.
+* text=auto eol=lf
+
+# Binary types git should never touch
+*.png binary
+*.jpg binary
+*.db binary
