@@ -3,6 +3,11 @@
 # consistent regardless of who clones it.
 * text=auto eol=lf
 
+# Windows batch scripts MUST stay CRLF on disk or cmd.exe misparses them
+# (comment lines get executed). Force CRLF on checkout regardless of the rule above.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
 # Binary types git should never touch
 *.png binary
 *.jpg binary
