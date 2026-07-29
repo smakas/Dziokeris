@@ -68,7 +68,14 @@ export function sortCombo(cards) {
     }
     out.push(srt[i]);
   }
-  return out.concat(jLeft);
+  // Leftover jokers extend the run at the ends, but a run tops out at Ace (14):
+  // put jokers above the top card only while there is room (14 - highVal), and
+  // send the rest to the LOW side. So ♦9-10-J-Q-K-A + joker shows the joker as the
+  // low ♦8 (left of the 9), never past the Ace.
+  const highVal = RV[srt[srt.length - 1].rank];
+  const roomHigh = Math.max(0, 14 - highVal);
+  const highJokers = jLeft.splice(0, Math.min(jLeft.length, roomHigh));
+  return [...jLeft, ...out, ...highJokers];
 }
 
 // ── enumeration (for coach + AI) ─────────────────────

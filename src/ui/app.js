@@ -11,7 +11,7 @@
 // ═══════════════════════════════════════════════════
 
 import { createGame, applyAction, startRound, hpts, cpts } from '../engine/game.js';
-import { isValidCombo } from '../engine/combos.js';
+import { isValidCombo, sortCombo } from '../engine/combos.js';
 import { suitCls, clbl } from '../engine/cards.js';
 import { planTurn, shouldTakeDiscard } from '../ai/policy.js';
 import { bestPlay } from '../engine/game.js';
@@ -63,6 +63,7 @@ function newGame() {
   gameId = (crypto.randomUUID && crypto.randomUUID()) || ('g' + Date.now());
   roundHistory = []; roundStartScores = state.players.map(p => p.score);
   UI.handOrder = state.players[0].hand.map(c => c.id);
+  togglePanes(false);
   coach('info', `🎴 Ratas ${state.round} — dalija ${state.players[state.dealer].name}`);
   renderAll();
   startTurn();
@@ -73,6 +74,7 @@ function startNextRound() {
   work = null; UI = freshUI(); undoStack = [];
   roundStartScores = state.players.map(p => p.score);
   UI.handOrder = state.players[0].hand.map(c => c.id);
+  togglePanes(false);
   coach('info', `🎴 Ratas ${state.round} — dalija ${state.players[state.dealer].name}`);
   renderAll();
   startTurn();
@@ -292,13 +294,21 @@ function aiStatusFor(a) {
   return a.type === 'draw' ? 'Ima kortą...' : a.type === 'lay' ? 'Dėlioja kombinaciją...'
     : a.type === 'add' ? 'Prideda kortą...' : a.type === 'discard' ? 'Išmeta kortą...' : '...';
 }
+function blinkPile(cardId) {
+  const el = document.getElementById(cardId); if (!el) return;
+  el.classList.remove('blink'); void el.offsetWidth; el.classList.add('blink');
+  setTimeout(() => el.classList.remove('blink'), 700);
+}
 function animateAI(pi, action, before) {
   const panel = document.getElementById(`opp${pi - 1}p`);
   if (action.type === 'draw') {
     const src = action.src === 'discard' ? 'disc-wrap' : 'deck-wrap';
     const card = state.players[pi].hand[state.players[pi].hand.length - 1];
+    blinkPile(action.src === 'discard' ? 'disc-el' : 'deck-el'); // flag which pile the card is taken from
     animFly(document.getElementById(src), panel, card, action.src === 'discard', null);
-    if (action.src === 'discard') showDiscNotif(`${state.players[pi].name} paėmė: ${clbl(card)}`);
+    showDiscNotif(action.src === 'discard'
+      ? `${state.players[pi].name} paėmė: ${clbl(card)}`
+      : `${state.players[pi].name} paėmė iš malkos`);
   } else if (action.type === 'discard') {
     const card = state.discard[state.discard.length - 1];
     animFly(panel, document.getElementById('disc-wrap'), card, true, null);
@@ -329,22 +339,56 @@ function finishRound() {
       running: state.players[seat].score,
     });
   }
-  if (state.gameOver) postGameResult();
-  const results = state.players.map((p, i) => ({ name: p.name, score: p.score, i }));
-  let msg = state.winnerSeat >= 0 && !state.gameOver
-    ? `Ratą uždarė: ${state.players[state.winnerSeat].name}\n\n` : '';
-  for (const r of results) msg += `${r.name}: ${r.score} ak.\n`;
-  msg += `\n🍬 Bankas: ${state.candyPot}`;
-
   if (state.gameOver) {
+    postGameResult();
     const champ = state.players[state.winnerSeat];
     if (champ.isHuman) { WINS++; document.getElementById('wins-lbl').textContent = `🏆 ${WINS}`; }
-    setTimeout(() => showOverlay('🎉 Žaidimas baigtas!',
-      `Laimi: ${champ.name}!\nSurenka ${state.candyPot} saldainius. 🍬\n\n${msg}`,
-      [{ lbl: 'Naujas žaidimas', fn: () => { closeOv(); newGame(); } }]), 600);
+  }
+  // Non-intrusive: board + revealed hands stay on screen; stats go to the right column.
+  setTimeout(showResultPanel, 600);
+}
+
+// Right-column round/game summary: per-player gain this round + running total, candy pot.
+function showResultPanel() {
+  const rp = document.getElementById('result-pane');
+  const closer = state.winnerSeat >= 0 && !state.gameOver ? state.players[state.winnerSeat].name : null;
+  const champ = state.gameOver ? state.players[state.winnerSeat] : null;
+  const rows = state.players.map((p, i) => {
+    const gain = hpts(p.hand);                 // uncombined points added this round
+    const danger = p.score >= 80;
+    const win = !state.gameOver && i === state.winnerSeat;
+    return `<div class="rp-row ${win ? 'rp-winner' : ''} ${danger ? 'rp-danger' : ''}">
+      <span class="rp-name">${win ? '🏆 ' : ''}${p.name}</span>
+      <span class="rp-gain ${gain === 0 ? 'rp-zero' : ''}">+${gain}</span>
+      <span class="rp-total">${p.score}</span>
+    </div>`;
+  }).join('');
+  const title = state.gameOver ? '🎉 Žaidimas baigtas!' : 'Ratas baigtas';
+  const sub = state.gameOver ? `Laimi ${champ.name} — surenka ${state.candyPot} 🍬`
+    : (closer ? `Ratą uždarė: ${closer}` : '');
+  rp.innerHTML = `
+    <div class="rp-title">${title}</div>
+    <div class="rp-sub">${sub}</div>
+    <div style="display:flex;font-size:0.58rem;color:#aaa;padding:0 7px 3px;justify-content:space-between">
+      <span>Žaidėjas</span><span>+ratas · iš viso</span></div>
+    ${rows}
+    <div class="rp-candy">🍬 Bankas: ${state.candyPot}</div>
+    <button class="rp-btn" id="rp-continue">${state.gameOver ? 'Naujas žaidimas' : 'Kitas ratas ▶'}</button>`;
+  document.getElementById('rp-continue').onclick = () => {
+    if (state.gameOver) newGame(); else startNextRound();
+  };
+  togglePanes(true);
+}
+
+// Show the result pane (round end) or restore the coach/log tabs (during play).
+function togglePanes(showResult) {
+  document.getElementById('result-pane').style.display = showResult ? 'flex' : 'none';
+  document.getElementById('tabs-row').style.display = showResult ? 'none' : 'flex';
+  if (showResult) {
+    document.getElementById('coach-pane').style.display = 'none';
+    document.getElementById('log-pane').style.display = 'none';
   } else {
-    setTimeout(() => showOverlay('Ratas baigtas', msg,
-      [{ lbl: 'Kitas ratas ▶', fn: () => { closeOv(); startNextRound(); } }]), 600);
+    switchTab('coach');
   }
 }
 
@@ -361,7 +405,13 @@ function handDrop(e, targetId) {
   const order = UI.handOrder;
   const si = order.indexOf(_dragId), ti = order.indexOf(targetId);
   if (si < 0 || ti < 0) return;
-  order.splice(si, 1); order.splice(order.indexOf(targetId) + (si < ti ? 1 : 0), 0, _dragId);
+  // Insert before or after the target based on which half of it the pointer is
+  // over — deterministic in both directions. Index is recomputed AFTER removing
+  // the dragged id so the earlier splice can't shift it (the old left→right bug).
+  const rect = e.currentTarget.getBoundingClientRect();
+  const after = (e.clientX - rect.left) > rect.width / 2;
+  order.splice(si, 1);
+  order.splice(order.indexOf(targetId) + (after ? 1 : 0), 0, _dragId);
   renderHand();
 }
 function handDragEnd() { _dragId = null; setTimeout(() => _dragging = false, 30); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); }
@@ -478,11 +528,14 @@ function renderTable() {
       const invalid = g.cards.length > 0 && !isValidCombo(g.cards);
       const valid = myPlay && anyInvalid && !invalid && g.cards.length >= 3;
       const isTgt = UI.comboTgt === gi;
+      // Display valid combos in true sequence (jokers in their real slot); leave
+      // invalid/incomplete groups in raw order so mid-arrangement doesn't jump around.
+      const disp = !invalid && g.cards.length >= 3 ? sortCombo(g.cards) : g.cards;
       return `<div class="combo-grp ${invalid ? 'invalid-grp' : ''} ${valid ? 'valid-grp' : ''} ${isTgt ? 'target' : ''}"
           data-gi="${gi}" onclick="selectCombo(${gi})" ondragover="tDragOver(event,${gi})"
           ondrop="tDropFromHand(event,${gi})" ondragleave="event.currentTarget.classList.remove('drag-tgt')">
         <span class="owner-tag">${owner}${invalid ? ' ⚠' : ''}</span>
-        ${g.cards.map(c => `<div class="card ${suitCls(c)} ${myPlay ? 'stageable' : ''} ${UI.glowIds.has(c.id) ? 'glow-new' : ''}"
+        ${disp.map(c => `<div class="card ${suitCls(c)} ${myPlay ? 'stageable' : ''} ${UI.glowIds.has(c.id) ? 'glow-new' : ''}"
             data-tgi="${gi}" data-tcid="${c.id}" draggable="${myPlay ? 'true' : 'false'}"
             ondragstart="${myPlay ? `tDragStart(event,${gi},${c.id})` : ''}" ondragend="${myPlay ? 'tDragEnd()' : ''}"
             ondragover="${myPlay ? `event.preventDefault();tComboCardDragOver(${gi},${c.id})` : ''}"
@@ -513,14 +566,16 @@ function renderHand() {
 }
 
 function renderOpponents() {
+  const reveal = state.roundOver; // at round end, flip opponents' remaining cards face-up
   for (let i = 1; i < state.players.length && i <= 2; i++) {
     const p = state.players[i], oi = i - 1;
     document.getElementById(`opp${oi}n`).textContent = p.name;
-    document.getElementById(`opp${oi}c`).textContent = `${p.hand.length} k.`;
-    document.getElementById(`opp${oi}h`).innerHTML = p.hand.map(() => '<div class="card back" style="width:26px;height:37px;border-radius:4px;flex-shrink:0"></div>').join('');
-    const myCb = state.table.filter(g => g.owner === i);
-    document.getElementById(`opp${oi}cb`).innerHTML = myCb.map(g =>
-      `<div class="opp-combo">${g.cards.map(c => `<div class="card ${suitCls(c)}" style="width:22px;height:32px;font-size:0.48rem;border-radius:2px">${cHTMLxs(c)}</div>`).join('')}</div>`).join('');
+    document.getElementById(`opp${oi}c`).textContent = reveal ? `${hpts(p.hand)} ak.` : `${p.hand.length} k.`;
+    document.getElementById(`opp${oi}h`).innerHTML = reveal
+      ? p.hand.map(c => `<div class="card ${suitCls(c)}" style="width:36px;height:50px;font-size:0.62rem" title="${clbl(c)} — ${cpts(c)} ak.">${cHTMLsm(c)}</div>`).join('')
+      : p.hand.map(() => '<div class="card back" style="width:26px;height:37px;border-radius:4px;flex-shrink:0"></div>').join('');
+    // Opponent laid combos are shown on the shared table (Stalas) — no duplicate strip here.
+    const cb = document.getElementById(`opp${oi}cb`); if (cb) cb.innerHTML = '';
     const op = document.getElementById(`opp${oi}p`);
     op.style.borderColor = state.current === i ? '#f90' : ''; op.style.boxShadow = state.current === i ? '0 0 0 2px #f902' : '';
   }
@@ -762,6 +817,10 @@ document.head.insertAdjacentHTML('beforeend', '<style>.ctlc{position:absolute;to
 // leaderboard button in the header (cloud stats)
 const _hr = document.getElementById('header-right');
 if (_hr) { const b = document.createElement('button'); b.className = 'hbtn'; b.textContent = '📊'; b.title = 'Rezultatai'; b.onclick = showStats; _hr.insertBefore(b, _hr.firstChild); }
+
+// version label — deploy.cmd stamps __BUILD__/__BUILDHASH__; unstamped local runs show "dev"
+const _vl = document.getElementById('ver-lbl');
+if (_vl && _vl.textContent.includes('__BUILD__')) { _vl.textContent = 'dev'; _vl.title = 'Local dev build (not deployed)'; }
 
 newGame();
 coach('info', 'Sveiki! Džiokeris v2 (naujas variklis). Tempkite kortas norėdami perstatyti. ↩ = atšaukti. 📋 = žurnalas. 💡 = patarimas.');
