@@ -1,11 +1,11 @@
 @echo off
-REM ─────────────────────────────────────────────────────────
-REM  Deploy Džiokeris to Cloudflare Pages.
+REM ---------------------------------------------------------
+REM  Deploy Dziokeris to Cloudflare Pages.
 REM  Double-click this file (or run: deploy) after changes.
-REM  Steps: auto-commit your changes locally -> stamp the build
-REM  version (date/time + commit hash) -> upload to Cloudflare.
-REM  (Local commit only; run `git push` yourself to sync GitHub.)
-REM ─────────────────────────────────────────────────────────
+REM  Steps: auto-commit changes locally -> stamp build version
+REM  (date/time + commit hash) -> upload to Cloudflare.
+REM  Local commit only; run "git push" yourself to sync GitHub.
+REM ---------------------------------------------------------
 setlocal
 for /f "delims=" %%d in ('powershell -NoProfile -Command "Get-Date -Format 'yyyy.MM.dd HHmm'"') do set STAMP=%%d
 
