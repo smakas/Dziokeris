@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Džiokeris — rezultatų knygos makietas</title>
+<style>
+:root{
+  --page:#f7f3ec; --ink:#2b2620; --muted:#8a8072;
+  --oak:#b07a45; --oak-dk:#8a5a30;
+  --felt:#2f6b46; --danger:#b3402f; --gold:#d9a441;
+  --paper:#fbf7ec; --rule:#d8cdb4; --pencil:#3a352c;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  font-family:'Segoe UI',Arial,sans-serif;color:var(--ink);
+  background:var(--page);min-height:100vh;padding:20px;
+  display:flex;justify-content:center;align-items:flex-start;
+}
+#wrap{width:100%;max-width:560px;display:flex;flex-direction:column;gap:14px;}
+
+/* header band */
+#header{
+  display:flex;align-items:center;gap:12px;
+  background:linear-gradient(180deg,#c99a68,var(--oak) 55%,var(--oak-dk));
+  border-radius:14px;padding:12px 18px;color:#fff8ef;
+  box-shadow:0 6px 16px rgba(138,90,48,.28);
+}
+#header h1{font-size:1.25rem;font-weight:800;letter-spacing:.5px;white-space:nowrap;
+  text-shadow:0 1px 2px rgba(0,0,0,.25);}
+#header .sub{font-size:.78rem;opacity:.95;margin-left:auto;font-weight:700;}
+
+/* the notebook page */
+.book{
+  background:var(--paper);
+  border:1px solid #e3d9c2;border-radius:12px;
+  padding:0;overflow:hidden;
+  box-shadow:0 8px 22px rgba(138,90,48,.16), 0 1px 0 #fff inset;
+}
+.book-top{
+  display:flex;justify-content:space-between;align-items:baseline;
+  padding:14px 20px 8px;border-bottom:1px solid var(--rule);
+}
+.book-top .m{font-size:.72rem;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-weight:700;}
+.book-top .wk{font-size:.72rem;color:var(--muted);}
+
+/* score grid */
+table.score{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;}
+table.score thead th{
+  padding:10px 4px 8px;font-size:.9rem;font-weight:800;color:var(--pencil);
+  border-bottom:2px solid var(--oak-dk);
+}
+table.score thead th .dot{display:inline-block;width:9px;height:9px;border-radius:50%;
+  margin-right:5px;vertical-align:middle;}
+.d1{background:#c9542f;} .d2{background:#3f6ea8;} .d3{background:#5a8a3c;} .d4{background:var(--felt);}
+table.score th.rlbl,table.score td.rlbl{
+  width:44px;text-align:center;font-size:.7rem;color:var(--muted);
+  border-right:1px solid var(--rule);font-weight:700;
+}
+table.score tbody td{
+  text-align:center;padding:7px 4px;
+  font-family:'Segoe Print','Comic Sans MS','Bradley Hand',cursive;
+  font-size:1.15rem;color:var(--pencil);
+  border-bottom:1px solid var(--rule);
+  position:relative;
+}
+table.score tbody tr:nth-child(even) td{background:rgba(176,122,69,.045);}
+td.danger{color:var(--danger);font-weight:700;}
+/* hand-drawn ring around the winning score */
+td.circled span{
+  position:relative;display:inline-block;padding:2px 7px;color:var(--felt);font-weight:800;
+}
+td.circled span::after{
+  content:"";position:absolute;left:-4px;top:-3px;right:-4px;bottom:-3px;
+  border:2px solid var(--felt);border-radius:52% 48% 49% 51%/54% 47% 53% 46%;
+  transform:rotate(-4deg);
+}
+
+/* current-round highlight */
+tr.current td{background:rgba(217,164,65,.16)!important;}
+tr.current td.rlbl{color:var(--oak-dk);}
+
+/* add-round mock row */
+tr.add td{padding:9px 4px;}
+tr.add .ghost{
+  display:inline-block;min-width:34px;border-bottom:1.5px dashed var(--oak);
+  color:var(--muted);font-family:'Segoe UI',sans-serif;font-size:.85rem;padding:1px 4px;
+}
+tr.add td.rlbl{color:var(--oak-dk);font-weight:800;}
+.addbtn{margin:12px 20px 4px;display:flex;justify-content:flex-end;}
+.addbtn button{background:var(--felt);color:#fff;border:none;border-radius:9px;
+  padding:8px 16px;font-size:.82rem;font-weight:700;cursor:default;box-shadow:0 2px 5px rgba(0,0,0,.14);}
+
+/* footer strip */
+.foot{
+  display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+  padding:12px 20px;border-top:2px solid var(--oak-dk);background:rgba(176,122,69,.07);
+}
+.chip{font-size:.8rem;font-weight:700;padding:5px 12px;border-radius:20px;}
+.chip.candy{background:#fff1cf;color:#8a5a00;}
+.chip.bust{background:#f6e0da;color:var(--danger);}
+.chip.lead{background:#e4f0e8;color:var(--felt);}
+.foot .note{margin-left:auto;font-size:.72rem;color:var(--muted);}
+
+.legend{text-align:center;font-size:.72rem;color:var(--muted);}
+</style>
+</head>
+<body>
+<div id="wrap">
+
+  <div id="header">
+    <h1>🃏 Rezultatų knyga</h1>
+    <span class="sub">2007 · Sausis · 1 savaitė</span>
+  </div>
+
+  <div class="book">
+    <div class="book-top">
+      <span class="m">Partija · 8 ratai sužaisti</span>
+      <span class="wk">iki 100 pralaimima</span>
+    </div>
+
+    <table class="score">
+      <thead>
+        <tr>
+          <th class="rlbl">R.</th>
+          <th><span class="dot d1"></span>Am</th>
+          <th><span class="dot d2"></span>Vž</th>
+          <th><span class="dot d3"></span>Vk</th>
+          <th><span class="dot d4"></span>Aš</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="rlbl">1</td><td>0</td><td>9</td><td>2</td><td>8</td></tr>
+        <tr><td class="rlbl">2</td><td>40</td><td>51</td><td>17</td><td>8</td></tr>
+        <tr><td class="rlbl">3</td><td>44</td><td>59</td><td>35</td><td>46</td></tr>
+        <tr><td class="rlbl">4</td><td>44</td><td>55</td><td>55</td><td>55</td></tr>
+        <tr><td class="rlbl">5</td><td>89</td><td>77</td><td>61</td><td class="danger">95</td></tr>
+        <tr><td class="rlbl">6</td><td>71</td><td>71</td><td>65</td><td class="danger">95</td></tr>
+        <tr><td class="rlbl">7</td><td>71</td><td>88</td><td>74</td><td>62</td></tr>
+        <tr class="current"><td class="rlbl">8</td><td>87</td><td>87</td><td class="circled"><span>87</span></td><td>68</td></tr>
+        <tr class="add">
+          <td class="rlbl">9</td>
+          <td><span class="ghost">+ ak.</span></td>
+          <td><span class="ghost">+ ak.</span></td>
+          <td><span class="ghost">+ ak.</span></td>
+          <td><span class="ghost">+ ak.</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="addbtn"><button>+ Įrašyti raundą</button></div>
+
+    <div class="foot">
+      <span class="chip lead">🥇 Pirmauja: Aš (68)</span>
+      <span class="chip candy">🍬 Puode: 3</span>
+      <span class="chip bust">⚠ Vž &amp; Am arti 100</span>
+      <span class="note">Apvestas — ratą uždaręs žaidėjas</span>
+    </div>
+  </div>
+
+  <div class="legend">Makietas — skaitmeninė rezultatų knyga pagal tikrą užrašinę · šilti akcentai, „pieštuko" skaičiai</div>
+</div>
+</body>
+</html>

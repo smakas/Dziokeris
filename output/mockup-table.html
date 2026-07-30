@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Džiokeris — stalo makietas</title>
+<style>
+:root{
+  --page:#f7f3ec; --ink:#2b2620; --muted:#8a8072;
+  --oak:#b07a45; --oak-dk:#8a5a30; --oak-lt:#c99a68;
+  --felt:#2f6b46; --felt-dk:#265a3a;
+  --danger:#b3402f; --gold:#d9a441;
+  --red:#c22; --blk:#111; --club:#1a3a8f; --jkr:#800080;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  font-family:'Segoe UI',Arial,sans-serif;color:var(--ink);
+  background:var(--page);
+  min-height:100vh;padding:18px;display:flex;justify-content:center;
+}
+#app{width:100%;max-width:1120px;display:flex;flex-direction:column;gap:14px;}
+
+/* Header band — warm wood strip */
+#header{
+  display:flex;align-items:center;gap:16px;
+  background:linear-gradient(180deg,var(--oak-lt),var(--oak) 55%,var(--oak-dk));
+  border-radius:14px;padding:12px 20px;color:#fff8ef;
+  box-shadow:0 2px 0 rgba(0,0,0,.12) inset,0 6px 16px rgba(138,90,48,.28);
+}
+#header h1{font-size:1.4rem;letter-spacing:1px;font-weight:800;white-space:nowrap;
+  text-shadow:0 1px 2px rgba(0,0,0,.25);}
+.hpill{background:rgba(255,255,255,.22);border-radius:20px;padding:5px 13px;
+  font-size:.85rem;font-weight:700;white-space:nowrap;}
+#header .spacer{flex:1;}
+.round-tag{font-size:.8rem;font-weight:700;opacity:.95;}
+
+/* Table surface */
+#felt{
+  position:relative;
+  background:
+    radial-gradient(120% 90% at 50% 42%, var(--felt) 0%, var(--felt-dk) 78%);
+  border:10px solid var(--oak-dk);
+  border-radius:26px;
+  padding:20px;
+  box-shadow:0 10px 30px rgba(38,90,58,.35), 0 2px 0 rgba(255,255,255,.06) inset;
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  grid-template-rows:auto auto auto;
+  gap:16px;align-items:center;
+}
+/* soft inlaid diamond in center */
+#felt::before{
+  content:"";position:absolute;left:50%;top:50%;width:230px;height:230px;
+  transform:translate(-50%,-50%) rotate(45deg);
+  border:2px solid rgba(255,255,255,.10);border-radius:14px;pointer-events:none;
+}
+
+/* seats */
+.seat{
+  background:rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.18);
+  border-radius:14px;padding:10px 12px;color:#eef7f0;backdrop-filter:blur(1px);
+}
+.seat.top{grid-column:1 / span 3;justify-self:center;min-width:340px;}
+.seat.left{grid-column:1;grid-row:2;justify-self:start;}
+.seat.right{grid-column:3;grid-row:2;justify-self:end;}
+.seat-hdr{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--gold);
+  color:#4a2f00;font-weight:800;font-size:.8rem;display:flex;align-items:center;
+  justify-content:center;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+.seat-name{font-weight:700;font-size:.9rem;}
+.count-badge{margin-left:auto;font-size:.72rem;background:rgba(0,0,0,.25);
+  padding:2px 8px;border-radius:10px;font-weight:700;}
+.turn-dot{width:9px;height:9px;border-radius:50%;background:var(--gold);
+  box-shadow:0 0 0 3px rgba(217,164,65,.35);}
+.fan{display:flex;}
+.fan .card.back{margin-left:-26px;}
+.fan .card.back:first-child{margin-left:0;}
+
+/* center piles */
+#center{grid-column:2;grid-row:2;display:flex;flex-direction:column;
+  align-items:center;gap:10px;}
+#piles{display:flex;gap:26px;align-items:flex-end;}
+.pile{display:flex;flex-direction:column;align-items:center;gap:6px;}
+.pile-lbl{font-size:.72rem;color:#dcefe2;font-weight:700;letter-spacing:.5px;text-transform:uppercase;}
+.pile-ct{font-size:.68rem;color:#bfe0cd;}
+.disc-stack{position:relative;}
+.disc-stack .card.under{position:absolute;top:5px;left:-8px;transform:rotate(-9deg);z-index:0;}
+.disc-stack .card.top{position:relative;z-index:1;}
+
+/* laid combos on felt */
+.laid{grid-column:1 / span 3;grid-row:3;display:flex;gap:18px;flex-wrap:wrap;
+  justify-content:center;}
+.combo{display:flex;gap:4px;background:rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:7px 9px;
+  position:relative;}
+.combo .tag{position:absolute;top:-9px;left:10px;font-size:.6rem;
+  background:var(--felt-dk);color:#cfe8d8;padding:1px 6px;border-radius:6px;}
+
+/* Cards */
+.card{
+  width:56px;height:80px;border-radius:8px;border:1.5px solid #d8d2c6;
+  background:#fff;position:relative;flex-shrink:0;
+  box-shadow:0 2px 5px rgba(0,0,0,.22);
+}
+.card .tl{position:absolute;top:4px;left:6px;text-align:left;line-height:1;}
+.card .br{position:absolute;bottom:4px;right:6px;text-align:right;line-height:1;
+  transform:rotate(180deg);}
+.card .rk{font-size:1rem;font-weight:800;display:block;}
+.card .sm{font-size:.85rem;display:block;}
+.card .big{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  font-size:1.9rem;}
+.red{color:var(--red);} .blk{color:var(--blk);} .club{color:var(--club);} .jkr{color:var(--jkr);}
+/* card back — stylised flower/rosette (blue + gold) */
+.card.back{
+  background:
+    radial-gradient(circle at 50% 50%, #fdf3d6 0 6px, transparent 7px),
+    radial-gradient(circle at 50% 50%, #2f5aa8 0 15px, transparent 16px),
+    conic-gradient(from 0deg at 50% 50%, #4a72c0 0 30deg, #3a5fa8 0 60deg,
+       #4a72c0 0 90deg, #3a5fa8 0 120deg, #4a72c0 0 150deg, #3a5fa8 0 180deg,
+       #4a72c0 0 210deg, #3a5fa8 0 240deg, #4a72c0 0 270deg, #3a5fa8 0 300deg,
+       #4a72c0 0 330deg, #3a5fa8 0 360deg);
+  border-color:#2f5aa8;
+}
+.card.back::after{content:"";position:absolute;inset:5px;border-radius:5px;
+  border:1.5px solid rgba(253,243,214,.55);}
+
+/* Your hand */
+#hand-panel{
+  background:#fffdf8;border:1px solid #e7dfd0;border-radius:16px;
+  padding:14px 16px;box-shadow:0 4px 14px rgba(138,90,48,.10);
+}
+.hand-hdr{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.you-av{background:var(--felt);color:#fff;}
+.hand-name{font-weight:800;font-size:1rem;}
+.pts{margin-left:6px;font-size:.78rem;background:var(--felt);color:#fff;
+  padding:3px 11px;border-radius:12px;font-weight:700;}
+.hand-cards{display:flex;justify-content:center;padding-top:4px;}
+.hand-cards .card{margin-left:-14px;transition:transform .12s;cursor:default;}
+.hand-cards .card:first-child{margin-left:0;}
+.hand-cards .card:hover{transform:translateY(-8px);}
+.hand-cards .card.big-h{width:60px;height:86px;}
+
+/* action row */
+#ctrl{display:flex;gap:9px;align-items:center;margin-top:13px;flex-wrap:wrap;}
+.phase{font-size:.82rem;color:var(--muted);font-style:italic;flex:1;min-width:120px;}
+.btn{border:none;border-radius:10px;padding:9px 16px;font-size:.86rem;font-weight:700;
+  cursor:default;color:#fff;box-shadow:0 2px 5px rgba(0,0,0,.14);}
+.btn.g{background:var(--felt);} .btn.b{background:#3f6ea8;}
+.btn.r{background:var(--danger);} .btn.w{background:#efe7d7;color:#6a5a44;}
+
+.legend{text-align:center;font-size:.72rem;color:var(--muted);margin-top:4px;}
+@media (max-width:720px){
+  #felt{grid-template-columns:1fr;grid-template-rows:auto;}
+  .seat.top,.seat.left,.seat.right,#center,.laid{grid-column:1;grid-row:auto;justify-self:stretch;}
+  #felt::before{display:none;}
+  .card{width:48px;height:69px;} .card .big{font-size:1.6rem;}
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="header">
+    <h1>🃏 Džiokeris</h1>
+    <span class="hpill">🍬 Saldainių puode: 3</span>
+    <span class="hpill">🏆 Aš: 2</span>
+    <span class="spacer"></span>
+    <span class="round-tag">Ratas 8 · malkoje liko 21</span>
+  </div>
+
+  <div id="felt">
+
+    <!-- Top opponent -->
+    <div class="seat top">
+      <div class="seat-hdr">
+        <span class="avatar">Am</span>
+        <span class="seat-name">Amelija</span>
+        <span class="count-badge">7 kortos</span>
+      </div>
+      <div class="fan">
+        <div class="card back"></div><div class="card back"></div>
+        <div class="card back"></div><div class="card back"></div>
+        <div class="card back"></div><div class="card back"></div>
+        <div class="card back"></div>
+      </div>
+    </div>
+
+    <!-- Left opponent -->
+    <div class="seat left">
+      <div class="seat-hdr">
+        <span class="avatar">Vž</span>
+        <span class="seat-name">Vytas</span>
+        <span class="count-badge">5</span>
+      </div>
+      <div class="fan">
+        <div class="card back"></div><div class="card back"></div>
+        <div class="card back"></div><div class="card back"></div>
+        <div class="card back"></div>
+      </div>
+    </div>
+
+    <!-- Center piles -->
+    <div id="center">
+      <div id="piles">
+        <div class="pile">
+          <div class="card back"></div>
+          <div class="pile-lbl">Malka</div>
+          <div class="pile-ct">21 liko</div>
+        </div>
+        <div class="pile">
+          <div class="disc-stack">
+            <div class="card under"><span class="tl blk"><span class="rk">9</span><span class="sm">♠</span></span><span class="big blk">♠</span><span class="br blk"><span class="rk">9</span><span class="sm">♠</span></span></div>
+            <div class="card top"><span class="tl blk"><span class="rk">6</span><span class="sm">♠</span></span><span class="big blk">♠</span><span class="br blk"><span class="rk">6</span><span class="sm">♠</span></span></div>
+          </div>
+          <div class="pile-lbl">Atversta</div>
+          <div class="pile-ct">imk arba mesk</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right opponent -->
+    <div class="seat right">
+      <div class="seat-hdr">
+        <span class="turn-dot" title="jo ėjimas"></span>
+        <span class="avatar">Vk</span>
+        <span class="seat-name">Viktoras</span>
+        <span class="count-badge">4</span>
+      </div>
+      <div class="fan">
+        <div class="card back"></div><div class="card back"></div>
+        <div class="card back"></div><div class="card back"></div>
+      </div>
+    </div>
+
+    <!-- Laid combinations on the table -->
+    <div class="laid">
+      <div class="combo">
+        <span class="tag">Am · eilė ♣</span>
+        <div class="card"><span class="tl club"><span class="rk">2</span><span class="sm">♣</span></span><span class="big club">♣</span><span class="br club"><span class="rk">2</span><span class="sm">♣</span></span></div>
+        <div class="card"><span class="tl club"><span class="rk">3</span><span class="sm">♣</span></span><span class="big club">♣</span><span class="br club"><span class="rk">3</span><span class="sm">♣</span></span></div>
+        <div class="card"><span class="tl club"><span class="rk">4</span><span class="sm">♣</span></span><span class="big club">♣</span><span class="br club"><span class="rk">4</span><span class="sm">♣</span></span></div>
+      </div>
+      <div class="combo">
+        <span class="tag">Vk · trejetas K</span>
+        <div class="card"><span class="tl red"><span class="rk">K</span><span class="sm">♥</span></span><span class="big red">♥</span><span class="br red"><span class="rk">K</span><span class="sm">♥</span></span></div>
+        <div class="card"><span class="tl blk"><span class="rk">K</span><span class="sm">♠</span></span><span class="big blk">♠</span><span class="br blk"><span class="rk">K</span><span class="sm">♠</span></span></div>
+        <div class="card"><span class="tl jkr"><span class="rk">🃏</span></span><span class="big jkr">★</span><span class="br jkr"><span class="rk">🃏</span></span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Your hand -->
+  <div id="hand-panel">
+    <div class="hand-hdr">
+      <span class="avatar you-av">Aš</span>
+      <span class="hand-name">Jūsų rankoje</span>
+      <span class="pts">18 ak.</span>
+    </div>
+    <div class="hand-cards">
+      <div class="card big-h"><span class="tl red"><span class="rk">A</span><span class="sm">♦</span></span><span class="big red">♦</span><span class="br red"><span class="rk">A</span><span class="sm">♦</span></span></div>
+      <div class="card big-h"><span class="tl red"><span class="rk">5</span><span class="sm">♥</span></span><span class="big red">♥</span><span class="br red"><span class="rk">5</span><span class="sm">♥</span></span></div>
+      <div class="card big-h"><span class="tl red"><span class="rk">6</span><span class="sm">♥</span></span><span class="big red">♥</span><span class="br red"><span class="rk">6</span><span class="sm">♥</span></span></div>
+      <div class="card big-h"><span class="tl red"><span class="rk">7</span><span class="sm">♥</span></span><span class="big red">♥</span><span class="br red"><span class="rk">7</span><span class="sm">♥</span></span></div>
+      <div class="card big-h"><span class="tl blk"><span class="rk">10</span><span class="sm">♠</span></span><span class="big blk">♠</span><span class="br blk"><span class="rk">10</span><span class="sm">♠</span></span></div>
+      <div class="card big-h"><span class="tl blk"><span class="rk">10</span><span class="sm">♣</span></span><span class="big club">♣</span><span class="br blk"><span class="rk">10</span><span class="sm">♣</span></span></div>
+      <div class="card big-h"><span class="tl jkr"><span class="rk">🃏</span></span><span class="big jkr">★</span><span class="br jkr"><span class="rk">🃏</span></span></div>
+    </div>
+    <div id="ctrl">
+      <span class="phase">Tavo ėjimas — pasidėk eilę ♥5-6-7 ir išmesk.</span>
+      <button class="btn g">▶ Dėti</button>
+      <button class="btn b">+ Pridėti</button>
+      <button class="btn r">↓ Išmesti</button>
+      <button class="btn w">💡 Patarimas</button>
+    </div>
+  </div>
+
+  <div class="legend">Makietas — modernus švarus stilius su šiltais akcentais · atspindi tikrą žaidimo stalą</div>
+</div>
+</body>
+</html>

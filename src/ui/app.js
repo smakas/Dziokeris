@@ -57,7 +57,7 @@ function newGame() {
   if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; }
   aiSkip = false;
   baseSeed = (Math.floor(Math.random() * 2 ** 31)) >>> 0; // one random seed per game; game itself is then deterministic
-  state = createGame(baseSeed, { players: 3, deal: 7 });
+  state = createGame(baseSeed, { players: 4, deal: 7 });
   // Deal is done inside createGame; re-deal here visually by resetting hands to empty for the animation.
   work = null; UI = freshUI(); undoStack = []; gameLog = [];
   gameId = (crypto.randomUUID && crypto.randomUUID()) || ('g' + Date.now());
@@ -567,7 +567,7 @@ function renderHand() {
 
 function renderOpponents() {
   const reveal = state.roundOver; // at round end, flip opponents' remaining cards face-up
-  for (let i = 1; i < state.players.length && i <= 2; i++) {
+  for (let i = 1; i < state.players.length && i <= 3; i++) {
     const p = state.players[i], oi = i - 1;
     document.getElementById(`opp${oi}n`).textContent = p.name;
     document.getElementById(`opp${oi}c`).textContent = reveal ? `${hpts(p.hand)} ak.` : `${p.hand.length} k.`;
