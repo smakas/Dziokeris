@@ -34,6 +34,10 @@ let aiSkip = false;
 let gameId = null;
 let roundHistory = [];
 let roundStartScores = [];
+let pendingActions = [];   // engine moves not yet acked by the server
+let pendingCombos = [];    // table combinations not yet acked by the server
+let cloudTimer = null;     // debounce handle for the resume PUT
+let RESTORING = false;     // true while re-hydrating a save (suppresses re-saving)
 const PLAYER = {
   id: localStorage.getItem('dz_player_id') || (() => { const id = (crypto.randomUUID && crypto.randomUUID()) || ('p' + Date.now() + Math.random()); localStorage.setItem('dz_player_id', id); return id; })(),
   name: localStorage.getItem('dz_player_name') || 'Jūs',
@@ -73,11 +77,13 @@ function newGame() {
   work = null; UI = freshUI(); undoStack = []; gameLog = [];
   gameId = (crypto.randomUUID && crypto.randomUUID()) || ('g' + Date.now());
   roundHistory = []; roundStartScores = state.players.map(p => p.score);
+  pendingActions = []; pendingCombos = [];
   clearToasts();
   UI.handOrder = state.players[0].hand.map(c => c.id);
   togglePanes(false);
   coach('info', `🎴 Ratas ${state.round} — dalija ${state.players[state.dealer].name}`);
   renderAll();
+  persist();     // seed the save with the fresh game (overwrites any old one)
   startTurn();
 }
 
@@ -89,6 +95,7 @@ function startNextRound() {
   togglePanes(false);
   coach('info', `🎴 Ratas ${state.round} — dalija ${state.players[state.dealer].name}`);
   renderAll();
+  persist();
   startTurn();
 }
 
@@ -139,7 +146,7 @@ function playerDraw(src) {
   pushUndo();
   const fromEl = src === 'deck' ? document.getElementById('deck-el') : document.getElementById('disc-el');
   const drawn = top && src === 'discard' ? top : state.deck[state.deck.length - 1];
-  ({ state } = applyAction(state, { type: 'draw', src }));
+  apply({ type: 'draw', src });
   // open the human draft now
   work = { hand: clone(state.players[0].hand), table: clone(state.table) };
   UI.handStartIds = new Set(state.players[0].hand.map(c => c.id));
@@ -234,7 +241,7 @@ function checkDraftWin() {
 // Push the human draft into the engine as one rearrange (validated).
 function commitDraft() {
   const groups = work.table.map(g => ({ owner: g.owner, ids: g.cards.map(c => c.id) }));
-  ({ state } = applyAction(state, { type: 'rearrange', groups }));
+  apply({ type: 'rearrange', groups });
 }
 
 function doDiscard() {
@@ -251,7 +258,7 @@ function doDiscard() {
   pushUndo();
   commitDraft();
   const fromEl = document.getElementById('hand-wrap');
-  ({ state } = applyAction(state, { type: 'discard', cardId: discId }));
+  apply({ type: 'discard', cardId: discId });
   work = null; UI.handSel = []; UI.comboTgt = -1; UI.glowIds = new Set();
   addLog('Jūs', 'disc', `Išmetė: ${clbl(card)}`);
   animFly(fromEl, document.getElementById('disc-wrap'), card, true, null);
@@ -280,7 +287,7 @@ async function runAI() {
     setAIStatus(pi, aiStatusFor(action));
     await wait(SPEED === 'fast' ? 180 : 380 + Math.random() * 260);
     const before = state;
-    ({ state } = applyAction(state, action));
+    apply(action);
     animateAI(pi, action, before);
     logAI(pi, action);
     renderAll();
@@ -297,7 +304,7 @@ async function runAI() {
 function applyPlanRest(plan, fromIdx) {
   for (let i = fromIdx; i < plan.length; i++) {
     if (state.roundOver) break;
-    ({ state } = applyAction(state, plan[i]));
+    apply(plan[i]);
     logAI(state.current, plan[i]);
   }
 }
@@ -356,6 +363,8 @@ function finishRound() {
     const champ = state.players[state.winnerSeat];
     if (champ.isHuman) { WINS++; document.getElementById('wins-lbl').textContent = `🏆 ${WINS}`; }
   }
+  persist();   // save with the round's scores captured (and finished flag if game over)
+  cloudSave(state.gameOver);   // flush now rather than waiting out the debounce
   // Non-intrusive: board + revealed hands stay on screen; stats go to the right column.
   setTimeout(showResultPanel, 600);
 }
@@ -793,6 +802,158 @@ function toggleSpeed() {
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ═══════════════════════════════════════════════════
+// PERSISTENCE — apply wrapper, move + combination capture, save/restore
+// ═══════════════════════════════════════════════════
+// The one gateway to the engine: every committed move flows through here, so this
+// is where we record the move, snapshot the resulting table combinations, and
+// trigger a save. Keeps the engine pure while capturing a full replayable history.
+function apply(action) {
+  const seat = state.current;   // the seat that owns this action (before it resolves)
+  const round = state.round;
+  const res = applyAction(state, action);
+  state = res.state;
+  pendingActions.push({ seq: state.seq, round, seat, type: action.type, payload: action });
+  // Combinations on the table are the richest learning signal — snapshot the whole
+  // table after any move that could have changed it (lay / add / rearrange).
+  if (action.type === 'lay' || action.type === 'add' || action.type === 'rearrange') {
+    captureCombos(state.seq, round);
+  }
+  persist();
+  return res;
+}
+
+// Record the current table as structured combinations (one row per group).
+function captureCombos(seq, round) {
+  state.table.forEach((g, grpIdx) => {
+    const key = comboKey(g.cards);
+    const kind = key.startsWith('set:') ? 'set' : key.startsWith('run:') ? 'run' : 'jokers';
+    pendingCombos.push({
+      seq, round, grpIdx, ownerSeat: g.owner, kind, comboKey: key,
+      cards: sortCombo(g.cards).map(c => ({ id: c.id, rank: c.rank, suit: c.suit, isJoker: !!c.isJoker })),
+      cardCount: g.cards.length,
+      points: g.cards.reduce((s, c) => s + cpts(c), 0),
+    });
+  });
+}
+
+// Everything needed to restore a game exactly: engine state + the in-turn draft +
+// the UI/meta the engine doesn't own. All plain, structuredClone-able data.
+function serializeSave() {
+  return {
+    v: 1, state, work,
+    meta: { baseSeed, WINS, roundStartScores, roundHistory, gameLog, handOrder: UI.handOrder },
+  };
+}
+function saveKey() { return 'dz_save:' + PLAYER.id; }
+
+// Persist after every change: localStorage synchronously (the offline mirror),
+// cloud debounced (the cross-device primary).
+function persist() {
+  if (RESTORING || !state || !gameId) return;
+  saveLocal();
+  if (cloudTimer) clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => cloudSave(), 1500);
+}
+function saveLocal() {
+  try {
+    localStorage.setItem(saveKey(), JSON.stringify({
+      snapshot: serializeSave(), gameId, pendingActions, pendingCombos, updatedAt: Date.now(),
+    }));
+  } catch (e) { /* quota / private mode — cloud still covers it */ }
+}
+async function cloudSave(finished) {
+  if (cloudTimer) { clearTimeout(cloudTimer); cloudTimer = null; }
+  if (!state || !gameId) return;
+  const sentA = pendingActions.slice(), sentC = pendingCombos.slice();
+  try {
+    const r = await fetch('/api/resume', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(resumePayload(sentA, sentC, finished)),
+    });
+    if (r && r.ok) {
+      // Drop only the items we actually sent (by seq); new pushes during the
+      // request stay buffered. Server writes are idempotent, so this is safe.
+      const aSeq = new Set(sentA.map(a => a.seq));
+      const cKey = new Set(sentC.map(c => c.seq + ':' + c.grpIdx));
+      pendingActions = pendingActions.filter(a => !aSeq.has(a.seq));
+      pendingCombos = pendingCombos.filter(c => !cKey.has(c.seq + ':' + c.grpIdx));
+      saveLocal();
+    }
+  } catch (e) { /* offline: keep buffers; localStorage mirror already holds them */ }
+}
+function resumePayload(actions, combinations, finished) {
+  return {
+    playerId: PLAYER.id,
+    game: { id: gameId, seed: baseSeed, config: state.config, mode: 'solo', round: state.round },
+    snapshot: serializeSave(), actions, combinations,
+    finished: !!finished || !!state.gameOver,
+  };
+}
+// Last-ditch save when the tab is hidden/closed — keepalive lets it outlive the page.
+function flushSave() {
+  if (!state || !gameId) return;
+  saveLocal();
+  try {
+    fetch('/api/resume', {
+      method: 'PUT', keepalive: true, headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(resumePayload(pendingActions, pendingCombos, state.gameOver)),
+    });
+  } catch (e) {}
+}
+
+// Load the player's active save: cloud first (cross-device), local mirror otherwise.
+async function loadSave() {
+  try {
+    const r = await fetch('/api/resume?playerId=' + encodeURIComponent(PLAYER.id));
+    if (r && r.ok) {
+      const d = await r.json();
+      if (d && d.snapshot && !d.none) return { snapshot: d.snapshot, gameId: d.gameId, pendingActions: [], pendingCombos: [] };
+      if (d && d.none) return loadLocalSave();
+    }
+  } catch (e) { /* offline → fall through to local */ }
+  return loadLocalSave();
+}
+function loadLocalSave() {
+  try {
+    const s = JSON.parse(localStorage.getItem(saveKey()) || 'null');
+    if (s && s.snapshot && s.snapshot.state) return s;
+  } catch (e) {}
+  return null;
+}
+function hasResumable(save) {
+  return !!(save && save.snapshot && save.snapshot.state && !save.snapshot.state.gameOver);
+}
+
+// Re-hydrate a saved game into the live variables and hand back control.
+function restoreGame(save) {
+  if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; }
+  aiSkip = false;
+  RESTORING = true;
+  const snap = save.snapshot, m = snap.meta || {};
+  state = snap.state;
+  work = snap.work || null;
+  baseSeed = m.baseSeed != null ? m.baseSeed : baseSeed;
+  WINS = m.WINS || 0;
+  roundStartScores = m.roundStartScores || state.players.map(p => p.score);
+  roundHistory = m.roundHistory || [];
+  gameLog = m.gameLog || [];
+  UI = freshUI();
+  UI.handOrder = (m.handOrder && m.handOrder.length) ? m.handOrder : state.players[0].hand.map(c => c.id);
+  undoStack = [];
+  gameId = save.gameId || gameId;
+  pendingActions = save.pendingActions || [];
+  pendingCombos = save.pendingCombos || [];
+  document.getElementById('wins-lbl').textContent = `🏆 ${WINS}`;
+  clearToasts();
+  togglePanes(false);
+  coach('info', `↩ Tęsiame — ratas ${state.round}.`);
+  renderAll();
+  RESTORING = false;
+  if (state.gameOver || state.roundOver) showResultPanel();
+  else startTurn();
+}
+
+// ═══════════════════════════════════════════════════
 // CLOUD SYNC (best-effort; game is fully playable offline)
 // ═══════════════════════════════════════════════════
 async function postGameResult() {
@@ -909,10 +1070,21 @@ function initLogin() {
     $('lg-form').style.display = 'none'; $('lg-back').style.display = '';
     $('lg-back-name').textContent = name;
   };
-  const start = (created) => {
-    ov.classList.remove('on');
-    newGame();
+  const welcome = (created) =>
     coach('info', `${created ? 'Sukurtas žaidėjas' : 'Sveiki'}, ${PLAYER.name}! Tempkite kortas perstatyti · ↩ atšaukti · 📋 žurnalas · 💡 patarimas.`);
+  const start = async (created) => {
+    ov.classList.remove('on');
+    const save = await loadSave();      // cloud-first, local mirror fallback
+    if (hasResumable(save)) {
+      showOverlay('Rasta nebaigta partija',
+        `Turite nebaigtą žaidimą (ratas ${save.snapshot.state.round}). Tęsti nuo ten, kur baigėte, ar pradėti naują?`, [
+        { lbl: '▶ Tęsti', fn: () => { closeOv(); restoreGame(save); welcome(created); } },
+        { lbl: '🆕 Naujas žaidimas', fn: () => { closeOv(); newGame(); welcome(created); } },
+      ]);
+    } else {
+      newGame();
+      welcome(created);
+    }
   };
   const finalize = (player, created) => {
     PLAYER.id = player.id; PLAYER.name = player.name;
@@ -957,5 +1129,9 @@ function initLogin() {
   if (authed && savedName && savedId) { PLAYER.id = savedId; PLAYER.name = savedName; showBack(savedName); }
   else showForm();
 }
+
+// Best-effort flush when the tab is backgrounded or closed (keepalive outlives the page).
+window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+window.addEventListener('pagehide', flushSave);
 
 initLogin();
