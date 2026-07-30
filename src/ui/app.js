@@ -73,6 +73,7 @@ function newGame() {
   work = null; UI = freshUI(); undoStack = []; gameLog = [];
   gameId = (crypto.randomUUID && crypto.randomUUID()) || ('g' + Date.now());
   roundHistory = []; roundStartScores = state.players.map(p => p.score);
+  clearToasts();
   UI.handOrder = state.players[0].hand.map(c => c.id);
   togglePanes(false);
   coach('info', `🎴 Ratas ${state.round} — dalija ${state.players[state.dealer].name}`);
@@ -317,9 +318,6 @@ function animateAI(pi, action, before) {
     const card = state.players[pi].hand[state.players[pi].hand.length - 1];
     blinkPile(action.src === 'discard' ? 'disc-el' : 'deck-el'); // flag which pile the card is taken from
     animFly(document.getElementById(src), panel, card, action.src === 'discard', null);
-    showDiscNotif(action.src === 'discard'
-      ? `${state.players[pi].name} paėmė: ${clbl(card)}`
-      : `${state.players[pi].name} paėmė iš malkos`);
   } else if (action.type === 'discard') {
     const card = state.discard[state.discard.length - 1];
     animFly(panel, document.getElementById('disc-wrap'), card, true, null);
@@ -327,7 +325,10 @@ function animateAI(pi, action, before) {
 }
 function logAI(pi, a) {
   const name = state.players[pi].name;
-  if (a.type === 'draw') addLog(name, 'draw', 'Paėmė kortą');
+  if (a.type === 'draw') {
+    const card = state.players[pi].hand[state.players[pi].hand.length - 1];
+    addLog(name, 'draw', a.src === 'discard' ? `Paėmė ${clbl(card)} (atversta)` : 'Paėmė iš malkos');
+  }
   else if (a.type === 'lay') addLog(name, 'lay', 'Padėjo kombinaciją');
   else if (a.type === 'add') addLog(name, 'add', 'Pridėjo kortą');
   else if (a.type === 'discard') addLog(name, 'disc', `Išmetė: ${clbl(state.discard[state.discard.length - 1])}`);
@@ -668,7 +669,20 @@ function animFly(fromEl, toEl, card, faceUp, cb) {
   }));
   setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); if (cb) cb(); }, 700);
 }
-function showDiscNotif(msg) { const el = document.getElementById('discard-notif'); el.textContent = msg; el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 3200); }
+// Stacking action toast: appears, holds, then gradually fades over 30s (CSS).
+function pushToast(who, text) {
+  const box = document.getElementById('toasts'); if (!box) return;
+  const t = document.createElement('div');
+  t.className = 'toast' + (who === 'Jūs' ? ' t-me' : '');
+  const tp = document.createElement('span'); tp.className = 'tp'; tp.textContent = who;
+  t.appendChild(tp); t.appendChild(document.createTextNode(text || ''));
+  box.appendChild(t);
+  while (box.children.length > 8) box.removeChild(box.firstChild); // cap the stack
+  const kill = () => { if (t.parentNode) t.parentNode.removeChild(t); };
+  t.addEventListener('animationend', kill);
+  setTimeout(kill, 30500); // fallback if animationend is missed
+}
+function clearToasts() { const b = document.getElementById('toasts'); if (b) b.innerHTML = ''; }
 
 // ═══════════════════════════════════════════════════
 // COACH + HINT
@@ -709,6 +723,7 @@ function showHint() {
 function addLog(player, action, detail) {
   const entry = { id: Date.now() + Math.random(), round: state.round, player, action, detail, ts: new Date().toLocaleTimeString('lt'), comment: '' };
   gameLog.push(entry);
+  pushToast(player, detail);  // transient stacking toast for every action
   try {
     const stored = JSON.parse(localStorage.getItem('dz_game_log') || '[]');
     stored.push(entry); if (stored.length > 200) stored.splice(0, stored.length - 200);
