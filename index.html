@@ -209,6 +209,21 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--page);color:var(--
 #ovbody{color:#555;line-height:1.65;margin-bottom:14px;white-space:pre-wrap;text-align:left;font-size:0.88rem;}
 .ovbtns{display:flex;gap:7px;justify-content:center;}
 
+/* login modal */
+#login-overlay{display:none;position:fixed;inset:0;background:rgba(40,25,10,.55);z-index:600;align-items:center;justify-content:center;padding:16px;}
+#login-overlay.on{display:flex;}
+#login-box{background:#fffdf8;border-radius:16px;padding:24px 26px;max-width:360px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.4);text-align:center;border-top:6px solid var(--oak);}
+#lg-logo{font-size:2.3rem;line-height:1;}
+#lg-title{color:var(--felt);font-size:1.2rem;margin:5px 0 16px;letter-spacing:1px;}
+.lg-sub{color:var(--muted);font-size:0.85rem;margin-bottom:6px;}
+.lg-bigname{font-size:1.35rem;font-weight:800;color:var(--pencil);margin-bottom:16px;}
+.lg-lbl{display:block;text-align:left;font-size:0.76rem;font-weight:700;color:var(--muted);margin:0 2px 5px;}
+.lg-input{width:100%;padding:11px 13px;border:2px solid #e0d6c2;border-radius:10px;font-size:1rem;font-family:inherit;background:#fbf7ec;color:var(--ink);}
+.lg-input:focus{outline:none;border-color:var(--felt);}
+.lg-pin{letter-spacing:0.55em;text-align:center;font-size:1.35rem;padding-left:0.55em;}
+.lg-btn{width:100%;padding:11px;font-size:0.92rem;margin-top:10px;}
+.lg-err{color:var(--danger);font-size:0.78rem;min-height:17px;text-align:left;margin:5px 2px 0;}
+
 @media (max-width:900px){
   #right-col{width:190px;}
 }
@@ -334,6 +349,40 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--page);color:var(--
 </div>
 
 <div id="overlay"><div id="ovbox"><h2 id="ovtitle"></h2><div id="ovbody"></div><div class="ovbtns" id="ovbtns"></div></div></div>
+
+<!-- Login: name + 4-digit PIN -->
+<div id="login-overlay">
+  <div id="login-box">
+    <div id="lg-logo">🃏</div>
+    <h2 id="lg-title">Džiokeris</h2>
+
+    <!-- returning player on this device -->
+    <div id="lg-back" style="display:none">
+      <p class="lg-sub">Ar tęsiate kaip</p>
+      <div id="lg-back-name" class="lg-bigname"></div>
+      <button class="btn bg lg-btn" id="lg-play">▶ Žaisti</button>
+      <button class="btn bw lg-btn" id="lg-switch">Kitas žaidėjas</button>
+    </div>
+
+    <!-- name + pin form -->
+    <div id="lg-form">
+      <div id="lg-step-name">
+        <label class="lg-lbl" for="lg-name-input">Jūsų vardas</label>
+        <input id="lg-name-input" class="lg-input" type="text" maxlength="24" autocomplete="off" placeholder="pvz. Simas">
+        <div id="lg-name-err" class="lg-err"></div>
+        <button class="btn bg lg-btn" id="lg-next">Toliau →</button>
+      </div>
+      <div id="lg-step-pin" style="display:none">
+        <label class="lg-lbl" id="lg-pin-lbl" for="lg-pin-input"></label>
+        <input id="lg-pin-input" class="lg-input lg-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="••••">
+        <div id="lg-err" class="lg-err"></div>
+        <button class="btn bg lg-btn" id="lg-start">▶ Pradėti žaidimą</button>
+        <button class="btn bw lg-btn" id="lg-back-btn">← Atgal</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="./src/ui/app.js"></script>
 </body>
 </html>

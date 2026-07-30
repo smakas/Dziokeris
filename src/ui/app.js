@@ -40,6 +40,17 @@ const PLAYER = {
 };
 function seatPlayerId(seat) { return seat === 0 ? PLAYER.id : 'ai:' + state.players[seat].name; }
 
+// Random Lithuanian first names for the AI seats (mixed).
+const AI_NAMES = ['Gintaras', 'Rūta', 'Mindaugas', 'Aistė', 'Tomas', 'Eglė', 'Darius', 'Milda',
+  'Rokas', 'Ieva', 'Kęstutis', 'Gabija', 'Vytautas', 'Austėja', 'Matas', 'Kotryna', 'Lukas',
+  'Dovilė', 'Paulius', 'Greta', 'Andrius', 'Rasa', 'Marius', 'Simona', 'Julius', 'Neringa'];
+function pickAiNames(n, avoid) {
+  const pool = AI_NAMES.filter(x => x.toLowerCase() !== String(avoid || '').toLowerCase());
+  const out = [];
+  while (out.length < n && pool.length) out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  return out;
+}
+
 function freshUI() {
   return { handSel: [], comboTgt: -1, handOrder: [], glowIds: new Set(), handStartIds: new Set() };
 }
@@ -57,7 +68,7 @@ function newGame() {
   if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; }
   aiSkip = false;
   baseSeed = (Math.floor(Math.random() * 2 ** 31)) >>> 0; // one random seed per game; game itself is then deterministic
-  state = createGame(baseSeed, { players: 4, deal: 7 });
+  state = createGame(baseSeed, { players: 4, deal: 7, names: [PLAYER.name, ...pickAiNames(3, PLAYER.name)] });
   // Deal is done inside createGame; re-deal here visually by resetting hands to empty for the animation.
   work = null; UI = freshUI(); undoStack = []; gameLog = [];
   gameId = (crypto.randomUUID && crypto.randomUUID()) || ('g' + Date.now());
@@ -822,5 +833,114 @@ if (_hr) { const b = document.createElement('button'); b.className = 'hbtn'; b.t
 const _vl = document.getElementById('ver-lbl');
 if (_vl && _vl.textContent.includes('__BUILD__')) { _vl.textContent = 'dev'; _vl.title = 'Local dev build (not deployed)'; }
 
-newGame();
-coach('info', 'Sveiki! Džiokeris v2 (naujas variklis). Tempkite kortas norėdami perstatyti. ↩ = atšaukti. 📋 = žurnalas. 💡 = patarimas.');
+// ═══════════════════════════════════════════════════
+// LOGIN — name + 4-digit PIN (D1-backed, offline fallback)
+// ═══════════════════════════════════════════════════
+async function sha256hex(s) {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+function randHex(n = 16) {
+  const a = new Uint8Array(n); crypto.getRandomValues(a);
+  return [...a].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+function getAccounts() { try { return JSON.parse(localStorage.getItem('dz_accounts') || '{}'); } catch (e) { return {}; } }
+function saveAccount(key, rec) { const a = getAccounts(); a[key] = rec; localStorage.setItem('dz_accounts', JSON.stringify(a)); }
+
+// local-only create/verify used when the server is unreachable
+async function localAuth(name, pin) {
+  const key = name.toLowerCase(), accs = getAccounts(), rec = accs[key];
+  if (rec) {
+    const h = await sha256hex(rec.salt + pin);
+    return h === rec.hash ? { ok: true, player: { id: rec.id, name: rec.name } } : { ok: false, reason: 'wrong_pin' };
+  }
+  const salt = randHex(), hash = await sha256hex(salt + pin);
+  const id = (crypto.randomUUID && crypto.randomUUID()) || ('p' + randHex(6));
+  saveAccount(key, { id, name, salt, hash });
+  return { ok: true, created: true, player: { id, name } };
+}
+async function nameExists(name) {
+  try {
+    const r = await fetch('/api/player?name=' + encodeURIComponent(name));
+    if (r.ok) { const d = await r.json(); return { online: true, exists: !!d.exists }; }
+  } catch (e) { /* offline */ }
+  return { online: false, exists: !!getAccounts()[name.toLowerCase()] };
+}
+async function doAuth(name, pin) {
+  try {
+    const r = await fetch('/api/player', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, pin }),
+    });
+    if (r.ok) return await r.json();
+    if (r.status === 400) return await r.json().catch(() => ({ ok: false, reason: 'bad_input' }));
+    return await localAuth(name, pin); // 404/405/500/503 (no API/DB) → local fallback
+  } catch (e) { return await localAuth(name, pin); } // network down → local
+}
+
+function initLogin() {
+  const ov = document.getElementById('login-overlay');
+  const $ = id => document.getElementById(id);
+  let curName = '';
+  ov.classList.add('on');
+
+  const showForm = () => {
+    $('lg-back').style.display = 'none'; $('lg-form').style.display = '';
+    $('lg-step-pin').style.display = 'none'; $('lg-step-name').style.display = '';
+    $('lg-name-err').textContent = ''; $('lg-err').textContent = '';
+    setTimeout(() => $('lg-name-input').focus(), 30);
+  };
+  const showBack = (name) => {
+    $('lg-form').style.display = 'none'; $('lg-back').style.display = '';
+    $('lg-back-name').textContent = name;
+  };
+  const start = (created) => {
+    ov.classList.remove('on');
+    newGame();
+    coach('info', `${created ? 'Sukurtas žaidėjas' : 'Sveiki'}, ${PLAYER.name}! Tempkite kortas perstatyti · ↩ atšaukti · 📋 žurnalas · 💡 patarimas.`);
+  };
+  const finalize = (player, created) => {
+    PLAYER.id = player.id; PLAYER.name = player.name;
+    localStorage.setItem('dz_player_id', PLAYER.id);
+    localStorage.setItem('dz_player_name', PLAYER.name);
+    localStorage.setItem('dz_authed', '1');
+    start(created);
+  };
+
+  $('lg-next').onclick = async () => {
+    const name = $('lg-name-input').value.trim();
+    if (!name) { $('lg-name-err').textContent = 'Įveskite vardą.'; return; }
+    curName = name; $('lg-next').disabled = true;
+    const { exists } = await nameExists(name);
+    $('lg-next').disabled = false;
+    $('lg-pin-lbl').textContent = exists ? 'Įveskite savo PIN (4 skaitmenys)' : 'Sukurkite 4 skaitmenų PIN';
+    $('lg-pin-input').value = ''; $('lg-err').textContent = '';
+    $('lg-step-name').style.display = 'none'; $('lg-step-pin').style.display = '';
+    setTimeout(() => $('lg-pin-input').focus(), 30);
+  };
+  $('lg-back-btn').onclick = () => {
+    $('lg-step-pin').style.display = 'none'; $('lg-step-name').style.display = '';
+    setTimeout(() => $('lg-name-input').focus(), 30);
+  };
+  $('lg-start').onclick = async () => {
+    const pin = $('lg-pin-input').value.trim();
+    if (!/^\d{4}$/.test(pin)) { $('lg-err').textContent = 'PIN turi būti 4 skaitmenys.'; return; }
+    $('lg-start').disabled = true; $('lg-err').textContent = 'Tikrinama…';
+    const res = await doAuth(curName, pin);
+    $('lg-start').disabled = false;
+    if (res && res.ok) { finalize(res.player, res.created); return; }
+    $('lg-err').textContent = res && res.reason === 'wrong_pin' ? 'Neteisingas PIN. Bandykite dar.' : 'Klaida. Bandykite dar kartą.';
+  };
+  $('lg-play').onclick = () => start(false);
+  $('lg-switch').onclick = () => { $('lg-name-input').value = ''; showForm(); };
+  $('lg-name-input').onkeydown = e => { if (e.key === 'Enter') $('lg-next').click(); };
+  $('lg-pin-input').onkeydown = e => { if (e.key === 'Enter') $('lg-start').click(); };
+
+  const authed = localStorage.getItem('dz_authed') === '1';
+  const savedName = localStorage.getItem('dz_player_name');
+  const savedId = localStorage.getItem('dz_player_id');
+  if (authed && savedName && savedId) { PLAYER.id = savedId; PLAYER.name = savedName; showBack(savedName); }
+  else showForm();
+}
+
+initLogin();

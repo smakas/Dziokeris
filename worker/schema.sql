@@ -10,8 +10,13 @@ CREATE TABLE IF NOT EXISTS players (
   name        TEXT NOT NULL,
   is_ai       INTEGER NOT NULL DEFAULT 0,
   profile_json TEXT,                   -- learned tendencies (Phase 5)
+  name_key    TEXT,                    -- lower(name) for human accounts; unique login key
+  pin_hash    TEXT,                    -- SHA-256(salt + pin) hex; NULL for AI/legacy
+  pin_salt    TEXT,                    -- per-player random hex salt
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- One human account per name (case-insensitive). AI rows leave name_key NULL.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_players_namekey ON players(name_key);
 
 -- Games — one finished game (a match to the 100-point bust rule).
 CREATE TABLE IF NOT EXISTS games (
