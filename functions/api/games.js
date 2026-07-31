@@ -26,11 +26,21 @@ export async function onRequestPost({ request, env }) {
     ).bind(p.id, p.name, p.isAi ? 1 : 0));
   }
 
+  // Upsert (not INSERT OR IGNORE): the games row may already exist from an
+  // in-progress resume save, so the final rounds/winner/candy must overwrite it.
   stmts.push(env.DB.prepare(
-    `INSERT OR IGNORE INTO games (id, seed, variant, config_json, mode, rounds, winner_player_id, candy_pot)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO games (id, seed, variant, config_json, mode, rounds, winner_player_id, candy_pot)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       rounds = excluded.rounds, winner_player_id = excluded.winner_player_id,
+       candy_pot = excluded.candy_pot, ended_at = datetime('now')`
   ).bind(g.id, g.seed | 0, g.variant || 2, JSON.stringify(g.config || {}), g.mode || 'solo',
     g.rounds | 0, g.winnerPlayerId || null, g.candyPot | 0));
+
+  // The game is over → its resume snapshot is no longer active.
+  stmts.push(env.DB.prepare(
+    `UPDATE saved_games SET finished = 1 WHERE game_id = ?`
+  ).bind(g.id));
 
   for (const p of players) {
     stmts.push(env.DB.prepare(

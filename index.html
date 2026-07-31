@@ -96,14 +96,13 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--page);color:var(--
 #round-lbl{position:absolute;top:9px;right:13px;font-size:0.62rem;color:#cfe6d6;text-align:right;line-height:1.6;text-shadow:0 1px 2px rgba(0,0,0,.4);z-index:2;}
 #discard-notif{align-self:center;}
 
-/* stacking action toasts — gradually fade over 30s */
-#toasts{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
-  display:flex;flex-direction:column;gap:5px;align-items:center;
-  pointer-events:none;z-index:6;width:max-content;max-width:88%;}
+/* action messages — live in the Žurnalas panel, each fades over 30s */
+#toasts{display:flex;flex-direction:column;gap:5px;align-items:stretch;
+  flex:1;min-height:0;overflow-y:auto;}
 .toast{background:rgba(18,38,26,.86);color:#eaf5ee;font-size:0.74rem;font-weight:600;
   padding:5px 12px;border-radius:14px;box-shadow:0 3px 8px rgba(0,0,0,.32);
-  border:1px solid rgba(255,255,255,.14);max-width:100%;white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis;animation:toastLife 30s ease forwards;}
+  border:1px solid rgba(255,255,255,.14);max-width:100%;white-space:normal;
+  word-break:break-word;flex-shrink:0;animation:toastLife 30s ease forwards;}
 .toast.t-me{background:rgba(24,58,40,.9);border-color:rgba(160,220,180,.35);}
 .toast .tp{font-weight:800;margin-right:5px;color:#ffe6b8;}
 .toast.t-me .tp{color:#bff0cf;}
@@ -153,6 +152,9 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--page);color:var(--
 #hand-cards{display:flex;flex-wrap:wrap;gap:3px;min-height:74px;align-items:flex-end;}
 .card.dragging{opacity:.3;transform:scale(.92);}
 .card.drag-over{border-left:3px solid #f60 !important;}
+/* hand reorder insertion markers */
+.card.drop-before{box-shadow:-3px 0 0 0 #f60 !important;}
+.card.drop-after{box-shadow:3px 0 0 0 #f60 !important;}
 
 /* action buttons (now inline in the hand header) */
 .btn{padding:8px 14px;border-radius:9px;border:none;cursor:pointer;font-size:0.82rem;font-weight:700;transition:all .12s;white-space:nowrap;color:#fff;box-shadow:0 2px 4px rgba(0,0,0,.12);}
@@ -202,6 +204,10 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--page);color:var(--
 .log-entry.log-ai{border-left-color:var(--gold);background:#fff6df;}
 .log-entry .log-cmt{font-size:0.62rem;color:#8a7c66;font-style:italic;margin-top:2px;}
 .log-btn{font-size:0.58rem;padding:1px 5px;border-radius:4px;border:1px solid #d8cdb4;background:#fff;cursor:pointer;color:#6a5a44;}
+.log-turn{margin-bottom:8px;}
+.log-turn-hdr{font-size:0.66rem;font-weight:800;color:var(--pencil);margin:0 0 3px 1px;}
+#game-log .log-entry{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-bottom:3px;}
+#game-log .log-entry .log-cmt{flex-basis:100%;}
 
 /* result panel — cream scorebook look */
 #result-pane{background:var(--paper);border:1px solid var(--rule);border-radius:9px;padding:11px 12px;}
@@ -277,7 +283,6 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--page);color:var(--
       <div id="felt">
 
         <div id="round-lbl"></div>
-        <div id="toasts"></div>
 
         <!-- draw + discard piles, up in the top-left corner -->
         <div id="piles-row">
@@ -352,14 +357,16 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--page);color:var(--
     <div class="panel" id="right-col">
       <div id="score-bar"></div>
       <div id="result-pane" style="display:none;flex-direction:column;flex:1;min-height:0;overflow-y:auto;"></div>
-      <div id="tabs-row" style="display:flex;gap:5px;margin-bottom:6px;flex-shrink:0;">
-        <button class="tab-btn active" id="tab-coach" onclick="switchTab('coach')">🧠 Treneris</button>
-        <button class="tab-btn" id="tab-log" onclick="switchTab('log')">📋 Žurnalas</button>
+      <!-- Treneris (coach) hidden for now; Žurnalas is the only in-play panel. -->
+      <div id="tabs-row" style="display:none;gap:5px;margin-bottom:6px;flex-shrink:0;">
+        <button class="tab-btn" id="tab-coach" onclick="switchTab('coach')" style="display:none">🧠 Treneris</button>
+        <button class="tab-btn active" id="tab-log" onclick="switchTab('log')">📋 Žurnalas</button>
       </div>
-      <div id="coach-pane" style="display:flex;flex-direction:column;flex:1;min-height:0;overflow-y:auto;">
+      <div id="coach-pane" style="display:none;flex-direction:column;flex:1;min-height:0;overflow-y:auto;">
         <div id="coach-log"></div>
       </div>
-      <div id="log-pane" style="display:none;flex-direction:column;flex:1;min-height:0;">
+      <div id="log-pane" style="display:flex;flex-direction:column;flex:1;min-height:0;">
+        <div id="log-hdr" style="font-size:0.62rem;font-weight:700;color:#8a7c66;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;flex-shrink:0;">📋 Žurnalas <span style="font-weight:400;text-transform:none;letter-spacing:0">· paskutinis kiekvieno ėjimas</span></div>
         <div id="game-log"></div>
       </div>
     </div>

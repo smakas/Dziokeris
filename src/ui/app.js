@@ -34,6 +34,12 @@ let aiSkip = false;
 let gameId = null;
 let roundHistory = [];
 let roundStartScores = [];
+let pendingActions = [];   // engine moves not yet acked by the server
+let pendingCombos = [];    // table combinations not yet acked by the server
+let pendingLog = [];       // journal entries (+ comments) not yet acked by the server
+let logSeq = 0;            // per-game running id for journal entries
+let cloudTimer = null;     // debounce handle for the resume PUT
+let RESTORING = false;     // true while re-hydrating a save (suppresses re-saving)
 const PLAYER = {
   id: localStorage.getItem('dz_player_id') || (() => { const id = (crypto.randomUUID && crypto.randomUUID()) || ('p' + Date.now() + Math.random()); localStorage.setItem('dz_player_id', id); return id; })(),
   name: localStorage.getItem('dz_player_name') || 'Jūs',
@@ -73,11 +79,13 @@ function newGame() {
   work = null; UI = freshUI(); undoStack = []; gameLog = [];
   gameId = (crypto.randomUUID && crypto.randomUUID()) || ('g' + Date.now());
   roundHistory = []; roundStartScores = state.players.map(p => p.score);
-  clearToasts();
+  pendingActions = []; pendingCombos = []; pendingLog = []; logSeq = 0;
+  clearToasts(); renderGameLog();
   UI.handOrder = state.players[0].hand.map(c => c.id);
   togglePanes(false);
   coach('info', `🎴 Ratas ${state.round} — dalija ${state.players[state.dealer].name}`);
   renderAll();
+  persist();     // seed the save with the fresh game (overwrites any old one)
   startTurn();
 }
 
@@ -89,6 +97,7 @@ function startNextRound() {
   togglePanes(false);
   coach('info', `🎴 Ratas ${state.round} — dalija ${state.players[state.dealer].name}`);
   renderAll();
+  persist();
   startTurn();
 }
 
@@ -139,7 +148,7 @@ function playerDraw(src) {
   pushUndo();
   const fromEl = src === 'deck' ? document.getElementById('deck-el') : document.getElementById('disc-el');
   const drawn = top && src === 'discard' ? top : state.deck[state.deck.length - 1];
-  ({ state } = applyAction(state, { type: 'draw', src }));
+  apply({ type: 'draw', src });
   // open the human draft now
   work = { hand: clone(state.players[0].hand), table: clone(state.table) };
   UI.handStartIds = new Set(state.players[0].hand.map(c => c.id));
@@ -147,7 +156,7 @@ function playerDraw(src) {
   const drawnCard = state.players[0].hand.find(c => c.id === state.drawnId);
   animFly(fromEl, document.getElementById('hand-wrap'), drawnCard, true, () => renderAll());
   coach('info', `Paėmėte: ${clbl(drawnCard)}${src === 'discard' ? ' (atversta)' : ''}`);
-  addLog('Jūs', 'draw', `Paėmė: ${clbl(drawnCard)}${src === 'discard' ? ' (atversta)' : ''}`);
+  addLog('Jūs', 'draw', `Paėmė: ${clbl(drawnCard)}${src === 'discard' ? ' (atversta)' : ''}`, 0);
   renderAll();
 }
 
@@ -168,7 +177,7 @@ function doLay() {
   sel.forEach(c => UI.glowIds.add(c.id));
   UI.handSel = []; UI.comboTgt = -1;
   trackCombo(sel);
-  addLog('Jūs', 'lay', `Padėjo: ${sel.map(clbl).join(' ')}`);
+  addLog('Jūs', 'lay', `Padėjo: ${sel.map(clbl).join(' ')}`, 0);
   coach('good', `Padėjote: ${sel.map(clbl).join(' ')}`);
   if (!checkDraftWin()) renderAll();
 }
@@ -186,7 +195,7 @@ function doAdd() {
   g.cards.push(...sel);
   sel.forEach(c => UI.glowIds.add(c.id));
   UI.handSel = [];
-  addLog('Jūs', 'add', `Pridėjo: ${sel.map(clbl).join(' ')}`);
+  addLog('Jūs', 'add', `Pridėjo: ${sel.map(clbl).join(' ')}`, 0);
   coach('good', 'Korta pridėta.');
   if (!checkDraftWin()) renderAll();
 }
@@ -234,7 +243,7 @@ function checkDraftWin() {
 // Push the human draft into the engine as one rearrange (validated).
 function commitDraft() {
   const groups = work.table.map(g => ({ owner: g.owner, ids: g.cards.map(c => c.id) }));
-  ({ state } = applyAction(state, { type: 'rearrange', groups }));
+  apply({ type: 'rearrange', groups });
 }
 
 function doDiscard() {
@@ -251,9 +260,9 @@ function doDiscard() {
   pushUndo();
   commitDraft();
   const fromEl = document.getElementById('hand-wrap');
-  ({ state } = applyAction(state, { type: 'discard', cardId: discId }));
+  apply({ type: 'discard', cardId: discId });
   work = null; UI.handSel = []; UI.comboTgt = -1; UI.glowIds = new Set();
-  addLog('Jūs', 'disc', `Išmetė: ${clbl(card)}`);
+  addLog('Jūs', 'disc', `Išmetė: ${clbl(card)}`, 0);
   animFly(fromEl, document.getElementById('disc-wrap'), card, true, null);
   renderAll();
   if (state.roundOver) { finishRound(); return; }
@@ -280,7 +289,7 @@ async function runAI() {
     setAIStatus(pi, aiStatusFor(action));
     await wait(SPEED === 'fast' ? 180 : 380 + Math.random() * 260);
     const before = state;
-    ({ state } = applyAction(state, action));
+    apply(action);
     animateAI(pi, action, before);
     logAI(pi, action);
     renderAll();
@@ -297,7 +306,7 @@ async function runAI() {
 function applyPlanRest(plan, fromIdx) {
   for (let i = fromIdx; i < plan.length; i++) {
     if (state.roundOver) break;
-    ({ state } = applyAction(state, plan[i]));
+    apply(plan[i]);
     logAI(state.current, plan[i]);
   }
 }
@@ -327,11 +336,11 @@ function logAI(pi, a) {
   const name = state.players[pi].name;
   if (a.type === 'draw') {
     const card = state.players[pi].hand[state.players[pi].hand.length - 1];
-    addLog(name, 'draw', a.src === 'discard' ? `Paėmė ${clbl(card)} (atversta)` : 'Paėmė iš malkos');
+    addLog(name, 'draw', a.src === 'discard' ? `Paėmė ${clbl(card)} (atversta)` : 'Paėmė iš malkos', pi);
   }
-  else if (a.type === 'lay') addLog(name, 'lay', 'Padėjo kombinaciją');
-  else if (a.type === 'add') addLog(name, 'add', 'Pridėjo kortą');
-  else if (a.type === 'discard') addLog(name, 'disc', `Išmetė: ${clbl(state.discard[state.discard.length - 1])}`);
+  else if (a.type === 'lay') addLog(name, 'lay', 'Padėjo kombinaciją', pi);
+  else if (a.type === 'add') addLog(name, 'add', 'Pridėjo kortą', pi);
+  else if (a.type === 'discard') addLog(name, 'disc', `Išmetė: ${clbl(state.discard[state.discard.length - 1])}`, pi);
 }
 function skipAI() { aiSkip = true; }
 function setAIStatus(pi, msg) { const el = document.getElementById(`opp${pi - 1}status`); if (el) el.textContent = msg; }
@@ -356,6 +365,8 @@ function finishRound() {
     const champ = state.players[state.winnerSeat];
     if (champ.isHuman) { WINS++; document.getElementById('wins-lbl').textContent = `🏆 ${WINS}`; }
   }
+  persist();   // save with the round's scores captured (and finished flag if game over)
+  cloudSave(state.gameOver);   // flush now rather than waiting out the debounce
   // Non-intrusive: board + revealed hands stay on screen; stats go to the right column.
   setTimeout(showResultPanel, 600);
 }
@@ -395,13 +406,9 @@ function showResultPanel() {
 // Show the result pane (round end) or restore the coach/log tabs (during play).
 function togglePanes(showResult) {
   document.getElementById('result-pane').style.display = showResult ? 'flex' : 'none';
-  document.getElementById('tabs-row').style.display = showResult ? 'none' : 'flex';
-  if (showResult) {
-    document.getElementById('coach-pane').style.display = 'none';
-    document.getElementById('log-pane').style.display = 'none';
-  } else {
-    switchTab('coach');
-  }
+  // Treneris is hidden for now; the Žurnalas (log) pane is the only in-play panel.
+  document.getElementById('coach-pane').style.display = 'none';
+  document.getElementById('log-pane').style.display = showResult ? 'none' : 'flex';
 }
 
 // ═══════════════════════════════════════════════════
@@ -409,24 +416,50 @@ function togglePanes(showResult) {
 // ═══════════════════════════════════════════════════
 let _dragId = null, _dragging = false;
 function handDragStart(e, id) { _dragId = id; _dragging = true; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'h'); }
-function handDragOver(e, id) { e.preventDefault(); const el = document.querySelector(`[data-cid="${id}"]`); if (el && id !== _dragId) el.classList.add('drag-over'); }
-function handDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
-function handDrop(e, targetId) {
+function handDragEnd() { _dragId = null; setTimeout(() => _dragging = false, 30); clearHandMarkers(); }
+
+// Insertion index from the pointer's X: the slot before the first card whose
+// midpoint is right of the cursor, or the end if the cursor is past them all.
+// Works over the whole hand area, so dropping past the last card lands rightmost.
+function handInsertIndex(clientX) {
+  const cards = [...document.querySelectorAll('#hand-cards .card')];
+  for (let i = 0; i < cards.length; i++) {
+    const r = cards[i].getBoundingClientRect();
+    if (clientX < r.left + r.width / 2) return i;
+  }
+  return cards.length;
+}
+// Container-level drag handling. Reorders the VISIBLE sequence (the cards actually
+// on screen), so stale ids left in handOrder by laid/staged cards can't misplace it.
+function handContainerDragOver(e) {
+  if (_dragId === null) return;
   e.preventDefault();
-  if (_dragId === null || _dragId === targetId) return;
-  const order = UI.handOrder;
-  const si = order.indexOf(_dragId), ti = order.indexOf(targetId);
-  if (si < 0 || ti < 0) return;
-  // Insert before or after the target based on which half of it the pointer is
-  // over — deterministic in both directions. Index is recomputed AFTER removing
-  // the dragged id so the earlier splice can't shift it (the old left→right bug).
-  const rect = e.currentTarget.getBoundingClientRect();
-  const after = (e.clientX - rect.left) > rect.width / 2;
-  order.splice(si, 1);
-  order.splice(order.indexOf(targetId) + (after ? 1 : 0), 0, _dragId);
+  markHandInsert(handInsertIndex(e.clientX));
+}
+function handContainerDrop(e) {
+  if (_dragId === null) return;
+  e.preventDefault();
+  clearHandMarkers();
+  const visible = sortedHand(curHand()).map(c => c.id);
+  const from = visible.indexOf(_dragId);
+  if (from < 0) return;
+  let insertAt = handInsertIndex(e.clientX);
+  visible.splice(from, 1);
+  if (insertAt > from) insertAt--;          // account for the removed card
+  visible.splice(insertAt, 0, _dragId);
+  UI.handOrder = visible;                    // rewrite order to exactly what's shown
   renderHand();
 }
-function handDragEnd() { _dragId = null; setTimeout(() => _dragging = false, 30); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); }
+function markHandInsert(idx) {
+  const cards = [...document.querySelectorAll('#hand-cards .card')];
+  clearHandMarkers();
+  if (idx < cards.length) cards[idx].classList.add('drop-before');
+  else if (cards.length) cards[cards.length - 1].classList.add('drop-after');
+}
+function clearHandMarkers() {
+  document.querySelectorAll('#hand-cards .card.drop-before,#hand-cards .card.drop-after')
+    .forEach(el => el.classList.remove('drop-before', 'drop-after'));
+}
 
 // ═══════════════════════════════════════════════════
 // TABLE DRAG (free rearrange on the draft)
@@ -569,8 +602,7 @@ function renderHand() {
   document.getElementById('hand-cards').innerHTML = sorted.map(c => {
     const isNew = c.id === state.drawnId;
     return `<div class="card clickable ${selIds.has(c.id) ? 'sel' : ''} ${isNew ? 'new-c' : ''} ${suitCls(c)}"
-        data-cid="${c.id}" draggable="true" ondragstart="handDragStart(event,${c.id})" ondragover="handDragOver(event,${c.id})"
-        ondrop="handDrop(event,${c.id})" ondragend="handDragEnd()" ondragleave="handDragLeave(event)"
+        data-cid="${c.id}" draggable="true" ondragstart="handDragStart(event,${c.id})" ondragend="handDragEnd()"
         onclick="if(!window._dragging)toggleHandSel(${c.id})" title="${cpts(c)} ak.${isNew ? ' — nauja' : ''}">${cHTML(c)}</div>`;
   }).join('');
   const pts = hpts(hand);
@@ -669,19 +701,6 @@ function animFly(fromEl, toEl, card, faceUp, cb) {
   }));
   setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); if (cb) cb(); }, 700);
 }
-// Stacking action toast: appears, holds, then gradually fades over 30s (CSS).
-function pushToast(who, text) {
-  const box = document.getElementById('toasts'); if (!box) return;
-  const t = document.createElement('div');
-  t.className = 'toast' + (who === 'Jūs' ? ' t-me' : '');
-  const tp = document.createElement('span'); tp.className = 'tp'; tp.textContent = who;
-  t.appendChild(tp); t.appendChild(document.createTextNode(text || ''));
-  box.appendChild(t);
-  while (box.children.length > 8) box.removeChild(box.firstChild); // cap the stack
-  const kill = () => { if (t.parentNode) t.parentNode.removeChild(t); };
-  t.addEventListener('animationend', kill);
-  setTimeout(kill, 30500); // fallback if animationend is missed
-}
 function clearToasts() { const b = document.getElementById('toasts'); if (b) b.innerHTML = ''; }
 
 // ═══════════════════════════════════════════════════
@@ -720,28 +739,61 @@ function showHint() {
 // ═══════════════════════════════════════════════════
 // GAME LOG (localStorage)
 // ═══════════════════════════════════════════════════
-function addLog(player, action, detail) {
-  const entry = { id: Date.now() + Math.random(), round: state.round, player, action, detail, ts: new Date().toLocaleTimeString('lt'), comment: '' };
+function addLog(player, action, detail, seat) {
+  const entry = { id: ++logSeq, round: state.round, seat: seat == null ? null : seat,
+    player, action, detail, ts: new Date().toLocaleTimeString('lt'), comment: '' };
   gameLog.push(entry);
-  pushToast(player, detail);  // transient stacking toast for every action
+  bufferLog(entry);   // queue for the database — everything is logged
   try {
     const stored = JSON.parse(localStorage.getItem('dz_game_log') || '[]');
     stored.push(entry); if (stored.length > 200) stored.splice(0, stored.length - 200);
     localStorage.setItem('dz_game_log', JSON.stringify(stored));
   } catch (e) {}
-  const lp = document.getElementById('log-pane');
-  if (lp && lp.style.display !== 'none') renderGameLog();
+  renderGameLog();
+  persist();
 }
+
+// Queue a journal entry for the DB, de-duped by id so a later comment edit
+// re-sends the same row and the server upserts the comment in place.
+function bufferLog(entry) {
+  pendingLog = pendingLog.filter(e => e.id !== entry.id);
+  pendingLog.push({ id: entry.id, round: entry.round, seat: entry.seat,
+    player: entry.player, action: entry.action, detail: entry.detail,
+    comment: entry.comment, ts: entry.ts });
+}
+// Žurnalas shows only the LAST turn of each player; older turns are hidden from
+// view (they're still logged in full to the DB). A turn is a contiguous block of
+// one player's entries, beginning at their 'draw'.
 function renderGameLog() {
   const el = document.getElementById('game-log'); if (!el) return;
-  el.innerHTML = [...gameLog].reverse().map(e => `<div class="log-entry ${e.player === 'Jūs' ? 'log-my' : 'log-ai'}">
-    <span style="color:#aaa;font-size:0.6rem">R${e.round} ${e.ts}</span> <strong>${e.player}</strong>: ${e.detail}
-    <button class="log-btn" onclick="editComment(${e.id})">💬</button>${e.comment ? `<div class="log-cmt">💬 ${e.comment}</div>` : ''}</div>`).join('');
+  const turns = [];
+  for (const e of gameLog) {
+    const last = turns[turns.length - 1];
+    if (!last || last.player !== e.player || e.action === 'draw') turns.push({ player: e.player, entries: [e] });
+    else last.entries.push(e);
+  }
+  const lastIdxByPlayer = new Map();
+  turns.forEach((t, i) => lastIdxByPlayer.set(t.player, i));
+  const show = [...lastIdxByPlayer.values()].sort((a, b) => b - a); // most recent turn first
+  el.innerHTML = show.map(i => {
+    const t = turns[i], mine = t.player === 'Jūs';
+    const lines = t.entries.map(e => `
+      <div class="log-entry ${mine ? 'log-my' : 'log-ai'}">
+        <span style="color:#aaa;font-size:0.6rem">R${e.round} ${e.ts}</span> ${e.detail}
+        <button class="log-btn" onclick="editComment(${e.id})">💬</button>
+        ${e.comment ? `<div class="log-cmt">💬 ${e.comment}</div>` : ''}
+      </div>`).join('');
+    return `<div class="log-turn"><div class="log-turn-hdr">${t.player}</div>${lines}</div>`;
+  }).join('');
 }
 function editComment(id) {
   const entry = gameLog.find(e => e.id === id); if (!entry) return;
   const cmt = prompt('Komentaras:', entry.comment || ''); if (cmt === null) return;
-  entry.comment = cmt; renderGameLog();
+  entry.comment = cmt;
+  bufferLog(entry);   // re-send this row → the DB upserts the comment
+  renderGameLog();
+  persist();
+  try { localStorage.setItem('dz_game_log', JSON.stringify(gameLog.slice(-200))); } catch (e) {}
 }
 function switchTab(tab) {
   document.getElementById('coach-pane').style.display = tab === 'coach' ? 'flex' : 'none';
@@ -793,6 +845,163 @@ function toggleSpeed() {
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ═══════════════════════════════════════════════════
+// PERSISTENCE — apply wrapper, move + combination capture, save/restore
+// ═══════════════════════════════════════════════════
+// The one gateway to the engine: every committed move flows through here, so this
+// is where we record the move, snapshot the resulting table combinations, and
+// trigger a save. Keeps the engine pure while capturing a full replayable history.
+function apply(action) {
+  const seat = state.current;   // the seat that owns this action (before it resolves)
+  const round = state.round;
+  const res = applyAction(state, action);
+  state = res.state;
+  pendingActions.push({ seq: state.seq, round, seat, type: action.type, payload: action });
+  // Combinations on the table are the richest learning signal — snapshot the whole
+  // table after any move that could have changed it (lay / add / rearrange).
+  if (action.type === 'lay' || action.type === 'add' || action.type === 'rearrange') {
+    captureCombos(state.seq, round);
+  }
+  persist();
+  return res;
+}
+
+// Record the current table as structured combinations (one row per group).
+function captureCombos(seq, round) {
+  state.table.forEach((g, grpIdx) => {
+    const key = comboKey(g.cards);
+    const kind = key.startsWith('set:') ? 'set' : key.startsWith('run:') ? 'run' : 'jokers';
+    pendingCombos.push({
+      seq, round, grpIdx, ownerSeat: g.owner, kind, comboKey: key,
+      cards: sortCombo(g.cards).map(c => ({ id: c.id, rank: c.rank, suit: c.suit, isJoker: !!c.isJoker })),
+      cardCount: g.cards.length,
+      points: g.cards.reduce((s, c) => s + cpts(c), 0),
+    });
+  });
+}
+
+// Everything needed to restore a game exactly: engine state + the in-turn draft +
+// the UI/meta the engine doesn't own. All plain, structuredClone-able data.
+function serializeSave() {
+  return {
+    v: 1, state, work,
+    meta: { baseSeed, WINS, roundStartScores, roundHistory, gameLog, handOrder: UI.handOrder },
+  };
+}
+function saveKey() { return 'dz_save:' + PLAYER.id; }
+
+// Persist after every change: localStorage synchronously (the offline mirror),
+// cloud debounced (the cross-device primary).
+function persist() {
+  if (RESTORING || !state || !gameId) return;
+  saveLocal();
+  if (cloudTimer) clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => cloudSave(), 1500);
+}
+function saveLocal() {
+  try {
+    localStorage.setItem(saveKey(), JSON.stringify({
+      snapshot: serializeSave(), gameId, pendingActions, pendingCombos, pendingLog, updatedAt: Date.now(),
+    }));
+  } catch (e) { /* quota / private mode — cloud still covers it */ }
+}
+async function cloudSave(finished) {
+  if (cloudTimer) { clearTimeout(cloudTimer); cloudTimer = null; }
+  if (!state || !gameId) return;
+  const sentA = pendingActions.slice(), sentC = pendingCombos.slice(), sentL = pendingLog.slice();
+  try {
+    const r = await fetch('/api/resume', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(resumePayload(sentA, sentC, sentL, finished)),
+    });
+    if (r && r.ok) {
+      // Drop only the items we actually sent; new pushes during the request stay
+      // buffered. Server writes are idempotent, so this is safe.
+      const aSeq = new Set(sentA.map(a => a.seq));
+      const cKey = new Set(sentC.map(c => c.seq + ':' + c.grpIdx));
+      const lId = new Set(sentL.map(e => e.id));
+      pendingActions = pendingActions.filter(a => !aSeq.has(a.seq));
+      pendingCombos = pendingCombos.filter(c => !cKey.has(c.seq + ':' + c.grpIdx));
+      pendingLog = pendingLog.filter(e => !lId.has(e.id));
+      saveLocal();
+    }
+  } catch (e) { /* offline: keep buffers; localStorage mirror already holds them */ }
+}
+function resumePayload(actions, combinations, log, finished) {
+  return {
+    playerId: PLAYER.id,
+    game: { id: gameId, seed: baseSeed, config: state.config, mode: 'solo', round: state.round },
+    snapshot: serializeSave(), actions, combinations, log,
+    finished: !!finished || !!state.gameOver,
+  };
+}
+// Last-ditch save when the tab is hidden/closed — keepalive lets it outlive the page.
+function flushSave() {
+  if (!state || !gameId) return;
+  saveLocal();
+  try {
+    fetch('/api/resume', {
+      method: 'PUT', keepalive: true, headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(resumePayload(pendingActions, pendingCombos, pendingLog, state.gameOver)),
+    });
+  } catch (e) {}
+}
+
+// Load the player's active save: cloud first (cross-device), local mirror otherwise.
+async function loadSave() {
+  try {
+    const r = await fetch('/api/resume?playerId=' + encodeURIComponent(PLAYER.id));
+    if (r && r.ok) {
+      const d = await r.json();
+      if (d && d.snapshot && !d.none) return { snapshot: d.snapshot, gameId: d.gameId, pendingActions: [], pendingCombos: [] };
+      if (d && d.none) return loadLocalSave();
+    }
+  } catch (e) { /* offline → fall through to local */ }
+  return loadLocalSave();
+}
+function loadLocalSave() {
+  try {
+    const s = JSON.parse(localStorage.getItem(saveKey()) || 'null');
+    if (s && s.snapshot && s.snapshot.state) return s;
+  } catch (e) {}
+  return null;
+}
+function hasResumable(save) {
+  return !!(save && save.snapshot && save.snapshot.state && !save.snapshot.state.gameOver);
+}
+
+// Re-hydrate a saved game into the live variables and hand back control.
+function restoreGame(save) {
+  if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; }
+  aiSkip = false;
+  RESTORING = true;
+  const snap = save.snapshot, m = snap.meta || {};
+  state = snap.state;
+  work = snap.work || null;
+  baseSeed = m.baseSeed != null ? m.baseSeed : baseSeed;
+  WINS = m.WINS || 0;
+  roundStartScores = m.roundStartScores || state.players.map(p => p.score);
+  roundHistory = m.roundHistory || [];
+  gameLog = m.gameLog || [];
+  UI = freshUI();
+  UI.handOrder = (m.handOrder && m.handOrder.length) ? m.handOrder : state.players[0].hand.map(c => c.id);
+  undoStack = [];
+  gameId = save.gameId || gameId;
+  pendingActions = save.pendingActions || [];
+  pendingCombos = save.pendingCombos || [];
+  pendingLog = save.pendingLog || [];
+  logSeq = gameLog.reduce((m, e) => Math.max(m, e.id || 0), 0);   // continue the id sequence
+  document.getElementById('wins-lbl').textContent = `🏆 ${WINS}`;
+  clearToasts();
+  togglePanes(false);
+  coach('info', `↩ Tęsiame — ratas ${state.round}.`);
+  renderAll();
+  renderGameLog();
+  RESTORING = false;
+  if (state.gameOver || state.roundOver) showResultPanel();
+  else startTurn();
+}
+
+// ═══════════════════════════════════════════════════
 // CLOUD SYNC (best-effort; game is fully playable offline)
 // ═══════════════════════════════════════════════════
 async function postGameResult() {
@@ -833,7 +1042,7 @@ async function showStats() {
 Object.assign(window, {
   playerDraw, doLay, doAdd, doDiscard, showHint, undoLast, toggleSpeed, confirmNewGame, skipAI,
   switchTab, editComment, selectCombo, toggleHandSel, stageCard,
-  handDragStart, handDragOver, handDrop, handDragEnd, handDragLeave,
+  handDragStart, handDragEnd,
   tDragStart, tDragOver, tDrop, tDragEnd, tDropNew, tDragOverNew, tDropFromHand, tComboCardDragOver,
 });
 Object.defineProperty(window, '_dragging', { get: () => _dragging });
@@ -909,10 +1118,21 @@ function initLogin() {
     $('lg-form').style.display = 'none'; $('lg-back').style.display = '';
     $('lg-back-name').textContent = name;
   };
-  const start = (created) => {
-    ov.classList.remove('on');
-    newGame();
+  const welcome = (created) =>
     coach('info', `${created ? 'Sukurtas žaidėjas' : 'Sveiki'}, ${PLAYER.name}! Tempkite kortas perstatyti · ↩ atšaukti · 📋 žurnalas · 💡 patarimas.`);
+  const start = async (created) => {
+    ov.classList.remove('on');
+    const save = await loadSave();      // cloud-first, local mirror fallback
+    if (hasResumable(save)) {
+      showOverlay('Rasta nebaigta partija',
+        `Turite nebaigtą žaidimą (ratas ${save.snapshot.state.round}). Tęsti nuo ten, kur baigėte, ar pradėti naują?`, [
+        { lbl: '▶ Tęsti', fn: () => { closeOv(); restoreGame(save); welcome(created); } },
+        { lbl: '🆕 Naujas žaidimas', fn: () => { closeOv(); newGame(); welcome(created); } },
+      ]);
+    } else {
+      newGame();
+      welcome(created);
+    }
   };
   const finalize = (player, created) => {
     PLAYER.id = player.id; PLAYER.name = player.name;
@@ -956,6 +1176,19 @@ function initLogin() {
   const savedId = localStorage.getItem('dz_player_id');
   if (authed && savedName && savedId) { PLAYER.id = savedId; PLAYER.name = savedName; showBack(savedName); }
   else showForm();
+}
+
+// Best-effort flush when the tab is backgrounded or closed (keepalive outlives the page).
+window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+window.addEventListener('pagehide', flushSave);
+
+// Hand reorder: one set of drop handlers on the container, so a card can land
+// anywhere across the hand — including past the last card (rightmost).
+const _handEl = document.getElementById('hand-cards');
+if (_handEl) {
+  _handEl.addEventListener('dragover', handContainerDragOver);
+  _handEl.addEventListener('drop', handContainerDrop);
+  _handEl.addEventListener('dragleave', (e) => { if (!_handEl.contains(e.relatedTarget)) clearHandMarkers(); });
 }
 
 initLogin();

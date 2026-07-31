@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS round_scores (
   PRIMARY KEY (game_id, round_no, seat)
 );
 
--- Full action log (optional now; the asset that makes any later analysis possible).
+-- Full action log — every engine move, so a game replays exactly (seed + actions).
 CREATE TABLE IF NOT EXISTS actions (
   game_id     TEXT NOT NULL REFERENCES games(id),
   seq         INTEGER NOT NULL,
@@ -62,6 +62,52 @@ CREATE TABLE IF NOT EXISTS actions (
   type        TEXT NOT NULL,
   payload_json TEXT,
   PRIMARY KEY (game_id, seq)
+);
+
+-- Combinations on the table — the primary intelligence layer. One row per table
+-- group after each move that changed the table, so the full history of which melds
+-- existed (and who owned them) is directly queryable without replaying actions.
+CREATE TABLE IF NOT EXISTS combinations (
+  game_id     TEXT NOT NULL REFERENCES games(id),
+  seq         INTEGER NOT NULL,   -- action index this table state follows
+  round_no    INTEGER NOT NULL,
+  grp_idx     INTEGER NOT NULL,   -- group position on the table
+  owner_seat  INTEGER NOT NULL,
+  kind        TEXT NOT NULL,      -- 'run' | 'set' | 'jokers'
+  combo_key   TEXT NOT NULL,      -- 'set:K' / 'run:♣:2-3-4' (comboKey)
+  cards_json  TEXT NOT NULL,      -- ordered cards (sortCombo)
+  card_count  INTEGER NOT NULL,
+  points      INTEGER NOT NULL,   -- combined card points (face value of the meld)
+  PRIMARY KEY (game_id, seq, grp_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_combos_key  ON combinations(combo_key);
+CREATE INDEX IF NOT EXISTS idx_combos_game ON combinations(game_id, round_no);
+
+-- Journal — the human-readable move log shown in "Žurnalas", plus player comments.
+-- Complements `actions` (canonical engine moves): this is what the player sees and
+-- annotates. entry_id is the client's per-game running index; comment upserts in place.
+CREATE TABLE IF NOT EXISTS game_log (
+  game_id    TEXT NOT NULL REFERENCES games(id),
+  entry_id   INTEGER NOT NULL,
+  round_no   INTEGER NOT NULL,
+  seat       INTEGER,
+  player     TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  detail     TEXT NOT NULL,
+  comment    TEXT,
+  ts         TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (game_id, entry_id)
+);
+
+-- Saved-game snapshot: one active (unfinished) game per player, for resume.
+CREATE TABLE IF NOT EXISTS saved_games (
+  player_id     TEXT PRIMARY KEY REFERENCES players(id),
+  game_id       TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  round_no      INTEGER NOT NULL DEFAULT 1,
+  finished      INTEGER NOT NULL DEFAULT 0,
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Mined insights + tuned policies (Phase 5). Defined now so the schema is stable.
