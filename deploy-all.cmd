@@ -25,8 +25,14 @@ git checkout %BRANCH% || goto :err
 git pull origin %BRANCH% || goto :err
 
 echo.
-echo [2/4] Creating tables in the LIVE database (saved_games, combinations) ...
-call npx -y wrangler d1 execute dziokeris --remote --file worker/schema.sql --yes || goto :err
+echo [2/4] Creating tables in the LIVE database (combinations, saved_games) ...
+REM Run each new statement via --command (the query endpoint). Avoids the D1
+REM --file "import" endpoint, which rejects OAuth tokens (auth error 10000).
+REM Every statement is IF NOT EXISTS, so re-running this is safe.
+call npx -y wrangler d1 execute dziokeris --remote --command "CREATE TABLE IF NOT EXISTS combinations (game_id TEXT NOT NULL REFERENCES games(id), seq INTEGER NOT NULL, round_no INTEGER NOT NULL, grp_idx INTEGER NOT NULL, owner_seat INTEGER NOT NULL, kind TEXT NOT NULL, combo_key TEXT NOT NULL, cards_json TEXT NOT NULL, card_count INTEGER NOT NULL, points INTEGER NOT NULL, PRIMARY KEY (game_id, seq, grp_idx))" || goto :err
+call npx -y wrangler d1 execute dziokeris --remote --command "CREATE INDEX IF NOT EXISTS idx_combos_key ON combinations(combo_key)" || goto :err
+call npx -y wrangler d1 execute dziokeris --remote --command "CREATE INDEX IF NOT EXISTS idx_combos_game ON combinations(game_id, round_no)" || goto :err
+call npx -y wrangler d1 execute dziokeris --remote --command "CREATE TABLE IF NOT EXISTS saved_games (player_id TEXT PRIMARY KEY REFERENCES players(id), game_id TEXT NOT NULL, snapshot_json TEXT NOT NULL, round_no INTEGER NOT NULL DEFAULT 1, finished INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))" || goto :err
 
 echo.
 echo [3/4] Verifying tables in the LIVE database ...
