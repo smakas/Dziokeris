@@ -404,13 +404,9 @@ function showResultPanel() {
 // Show the result pane (round end) or restore the coach/log tabs (during play).
 function togglePanes(showResult) {
   document.getElementById('result-pane').style.display = showResult ? 'flex' : 'none';
-  document.getElementById('tabs-row').style.display = showResult ? 'none' : 'flex';
-  if (showResult) {
-    document.getElementById('coach-pane').style.display = 'none';
-    document.getElementById('log-pane').style.display = 'none';
-  } else {
-    switchTab('coach');
-  }
+  // Treneris is hidden for now; the Žurnalas (log) pane is the only in-play panel.
+  document.getElementById('coach-pane').style.display = 'none';
+  document.getElementById('log-pane').style.display = showResult ? 'none' : 'flex';
 }
 
 // ═══════════════════════════════════════════════════
@@ -686,7 +682,8 @@ function pushToast(who, text) {
   const tp = document.createElement('span'); tp.className = 'tp'; tp.textContent = who;
   t.appendChild(tp); t.appendChild(document.createTextNode(text || ''));
   box.appendChild(t);
-  while (box.children.length > 8) box.removeChild(box.firstChild); // cap the stack
+  box.scrollTop = box.scrollHeight; // keep the newest message in view
+  while (box.children.length > 30) box.removeChild(box.firstChild); // cap the stack
   const kill = () => { if (t.parentNode) t.parentNode.removeChild(t); };
   t.addEventListener('animationend', kill);
   setTimeout(kill, 30500); // fallback if animationend is missed
