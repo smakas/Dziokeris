@@ -416,24 +416,50 @@ function togglePanes(showResult) {
 // ═══════════════════════════════════════════════════
 let _dragId = null, _dragging = false;
 function handDragStart(e, id) { _dragId = id; _dragging = true; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'h'); }
-function handDragOver(e, id) { e.preventDefault(); const el = document.querySelector(`[data-cid="${id}"]`); if (el && id !== _dragId) el.classList.add('drag-over'); }
-function handDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
-function handDrop(e, targetId) {
+function handDragEnd() { _dragId = null; setTimeout(() => _dragging = false, 30); clearHandMarkers(); }
+
+// Insertion index from the pointer's X: the slot before the first card whose
+// midpoint is right of the cursor, or the end if the cursor is past them all.
+// Works over the whole hand area, so dropping past the last card lands rightmost.
+function handInsertIndex(clientX) {
+  const cards = [...document.querySelectorAll('#hand-cards .card')];
+  for (let i = 0; i < cards.length; i++) {
+    const r = cards[i].getBoundingClientRect();
+    if (clientX < r.left + r.width / 2) return i;
+  }
+  return cards.length;
+}
+// Container-level drag handling. Reorders the VISIBLE sequence (the cards actually
+// on screen), so stale ids left in handOrder by laid/staged cards can't misplace it.
+function handContainerDragOver(e) {
+  if (_dragId === null) return;
   e.preventDefault();
-  if (_dragId === null || _dragId === targetId) return;
-  const order = UI.handOrder;
-  const si = order.indexOf(_dragId), ti = order.indexOf(targetId);
-  if (si < 0 || ti < 0) return;
-  // Insert before or after the target based on which half of it the pointer is
-  // over — deterministic in both directions. Index is recomputed AFTER removing
-  // the dragged id so the earlier splice can't shift it (the old left→right bug).
-  const rect = e.currentTarget.getBoundingClientRect();
-  const after = (e.clientX - rect.left) > rect.width / 2;
-  order.splice(si, 1);
-  order.splice(order.indexOf(targetId) + (after ? 1 : 0), 0, _dragId);
+  markHandInsert(handInsertIndex(e.clientX));
+}
+function handContainerDrop(e) {
+  if (_dragId === null) return;
+  e.preventDefault();
+  clearHandMarkers();
+  const visible = sortedHand(curHand()).map(c => c.id);
+  const from = visible.indexOf(_dragId);
+  if (from < 0) return;
+  let insertAt = handInsertIndex(e.clientX);
+  visible.splice(from, 1);
+  if (insertAt > from) insertAt--;          // account for the removed card
+  visible.splice(insertAt, 0, _dragId);
+  UI.handOrder = visible;                    // rewrite order to exactly what's shown
   renderHand();
 }
-function handDragEnd() { _dragId = null; setTimeout(() => _dragging = false, 30); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); }
+function markHandInsert(idx) {
+  const cards = [...document.querySelectorAll('#hand-cards .card')];
+  clearHandMarkers();
+  if (idx < cards.length) cards[idx].classList.add('drop-before');
+  else if (cards.length) cards[cards.length - 1].classList.add('drop-after');
+}
+function clearHandMarkers() {
+  document.querySelectorAll('#hand-cards .card.drop-before,#hand-cards .card.drop-after')
+    .forEach(el => el.classList.remove('drop-before', 'drop-after'));
+}
 
 // ═══════════════════════════════════════════════════
 // TABLE DRAG (free rearrange on the draft)
@@ -576,8 +602,7 @@ function renderHand() {
   document.getElementById('hand-cards').innerHTML = sorted.map(c => {
     const isNew = c.id === state.drawnId;
     return `<div class="card clickable ${selIds.has(c.id) ? 'sel' : ''} ${isNew ? 'new-c' : ''} ${suitCls(c)}"
-        data-cid="${c.id}" draggable="true" ondragstart="handDragStart(event,${c.id})" ondragover="handDragOver(event,${c.id})"
-        ondrop="handDrop(event,${c.id})" ondragend="handDragEnd()" ondragleave="handDragLeave(event)"
+        data-cid="${c.id}" draggable="true" ondragstart="handDragStart(event,${c.id})" ondragend="handDragEnd()"
         onclick="if(!window._dragging)toggleHandSel(${c.id})" title="${cpts(c)} ak.${isNew ? ' — nauja' : ''}">${cHTML(c)}</div>`;
   }).join('');
   const pts = hpts(hand);
@@ -1017,7 +1042,7 @@ async function showStats() {
 Object.assign(window, {
   playerDraw, doLay, doAdd, doDiscard, showHint, undoLast, toggleSpeed, confirmNewGame, skipAI,
   switchTab, editComment, selectCombo, toggleHandSel, stageCard,
-  handDragStart, handDragOver, handDrop, handDragEnd, handDragLeave,
+  handDragStart, handDragEnd,
   tDragStart, tDragOver, tDrop, tDragEnd, tDropNew, tDragOverNew, tDropFromHand, tComboCardDragOver,
 });
 Object.defineProperty(window, '_dragging', { get: () => _dragging });
@@ -1156,5 +1181,14 @@ function initLogin() {
 // Best-effort flush when the tab is backgrounded or closed (keepalive outlives the page).
 window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
 window.addEventListener('pagehide', flushSave);
+
+// Hand reorder: one set of drop handlers on the container, so a card can land
+// anywhere across the hand — including past the last card (rightmost).
+const _handEl = document.getElementById('hand-cards');
+if (_handEl) {
+  _handEl.addEventListener('dragover', handContainerDragOver);
+  _handEl.addEventListener('drop', handContainerDrop);
+  _handEl.addEventListener('dragleave', (e) => { if (!_handEl.contains(e.relatedTarget)) clearHandMarkers(); });
+}
 
 initLogin();

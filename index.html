@@ -152,6 +152,9 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--page);color:var(--
 #hand-cards{display:flex;flex-wrap:wrap;gap:3px;min-height:74px;align-items:flex-end;}
 .card.dragging{opacity:.3;transform:scale(.92);}
 .card.drag-over{border-left:3px solid #f60 !important;}
+/* hand reorder insertion markers */
+.card.drop-before{box-shadow:-3px 0 0 0 #f60 !important;}
+.card.drop-after{box-shadow:3px 0 0 0 #f60 !important;}
 
 /* action buttons (now inline in the hand header) */
 .btn{padding:8px 14px;border-radius:9px;border:none;cursor:pointer;font-size:0.82rem;font-weight:700;transition:all .12s;white-space:nowrap;color:#fff;box-shadow:0 2px 4px rgba(0,0,0,.12);}
