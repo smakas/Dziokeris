@@ -83,6 +83,23 @@ CREATE TABLE IF NOT EXISTS combinations (
 CREATE INDEX IF NOT EXISTS idx_combos_key  ON combinations(combo_key);
 CREATE INDEX IF NOT EXISTS idx_combos_game ON combinations(game_id, round_no);
 
+-- Journal — the human-readable move log shown in "Žurnalas", plus player comments.
+-- Complements `actions` (canonical engine moves): this is what the player sees and
+-- annotates. entry_id is the client's per-game running index; comment upserts in place.
+CREATE TABLE IF NOT EXISTS game_log (
+  game_id    TEXT NOT NULL REFERENCES games(id),
+  entry_id   INTEGER NOT NULL,
+  round_no   INTEGER NOT NULL,
+  seat       INTEGER,
+  player     TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  detail     TEXT NOT NULL,
+  comment    TEXT,
+  ts         TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (game_id, entry_id)
+);
+
 -- Saved-game snapshot: one active (unfinished) game per player, for resume.
 CREATE TABLE IF NOT EXISTS saved_games (
   player_id     TEXT PRIMARY KEY REFERENCES players(id),

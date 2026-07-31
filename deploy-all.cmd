@@ -33,6 +33,7 @@ call npx -y wrangler d1 execute dziokeris --remote --command "CREATE TABLE IF NO
 call npx -y wrangler d1 execute dziokeris --remote --command "CREATE INDEX IF NOT EXISTS idx_combos_key ON combinations(combo_key)" || goto :err
 call npx -y wrangler d1 execute dziokeris --remote --command "CREATE INDEX IF NOT EXISTS idx_combos_game ON combinations(game_id, round_no)" || goto :err
 call npx -y wrangler d1 execute dziokeris --remote --command "CREATE TABLE IF NOT EXISTS saved_games (player_id TEXT PRIMARY KEY REFERENCES players(id), game_id TEXT NOT NULL, snapshot_json TEXT NOT NULL, round_no INTEGER NOT NULL DEFAULT 1, finished INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))" || goto :err
+call npx -y wrangler d1 execute dziokeris --remote --command "CREATE TABLE IF NOT EXISTS game_log (game_id TEXT NOT NULL REFERENCES games(id), entry_id INTEGER NOT NULL, round_no INTEGER NOT NULL, seat INTEGER, player TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, comment TEXT, ts TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (game_id, entry_id))" || goto :err
 
 echo.
 echo [3/4] Verifying tables in the LIVE database ...

@@ -46,6 +46,7 @@ export async function onRequestPut({ request, env }) {
 
   const actions = Array.isArray(body.actions) ? body.actions : [];
   const combos = Array.isArray(body.combinations) ? body.combinations : [];
+  const log = Array.isArray(body.log) ? body.log : [];
   const finished = body.finished ? 1 : 0;
   const stmts = [];
 
@@ -79,6 +80,17 @@ export async function onRequestPut({ request, env }) {
     ).bind(g.id, c.seq | 0, c.round | 0, c.grpIdx | 0, c.ownerSeat | 0,
       String(c.kind || ''), String(c.comboKey || ''), JSON.stringify(c.cards || []),
       c.cardCount | 0, c.points | 0));
+  }
+
+  for (const e of log) {
+    stmts.push(env.DB.prepare(
+      `INSERT INTO game_log (game_id, entry_id, round_no, seat, player, action, detail, comment, ts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(game_id, entry_id) DO UPDATE SET
+         comment = excluded.comment, detail = excluded.detail`
+    ).bind(g.id, e.id | 0, e.round | 0, e.seat == null ? null : e.seat | 0,
+      String(e.player || ''), String(e.action || ''), String(e.detail || ''),
+      e.comment ? String(e.comment) : null, e.ts ? String(e.ts) : null));
   }
 
   try {

@@ -36,6 +36,8 @@ let roundHistory = [];
 let roundStartScores = [];
 let pendingActions = [];   // engine moves not yet acked by the server
 let pendingCombos = [];    // table combinations not yet acked by the server
+let pendingLog = [];       // journal entries (+ comments) not yet acked by the server
+let logSeq = 0;            // per-game running id for journal entries
 let cloudTimer = null;     // debounce handle for the resume PUT
 let RESTORING = false;     // true while re-hydrating a save (suppresses re-saving)
 const PLAYER = {
@@ -77,8 +79,8 @@ function newGame() {
   work = null; UI = freshUI(); undoStack = []; gameLog = [];
   gameId = (crypto.randomUUID && crypto.randomUUID()) || ('g' + Date.now());
   roundHistory = []; roundStartScores = state.players.map(p => p.score);
-  pendingActions = []; pendingCombos = [];
-  clearToasts();
+  pendingActions = []; pendingCombos = []; pendingLog = []; logSeq = 0;
+  clearToasts(); renderGameLog();
   UI.handOrder = state.players[0].hand.map(c => c.id);
   togglePanes(false);
   coach('info', `🎴 Ratas ${state.round} — dalija ${state.players[state.dealer].name}`);
@@ -154,7 +156,7 @@ function playerDraw(src) {
   const drawnCard = state.players[0].hand.find(c => c.id === state.drawnId);
   animFly(fromEl, document.getElementById('hand-wrap'), drawnCard, true, () => renderAll());
   coach('info', `Paėmėte: ${clbl(drawnCard)}${src === 'discard' ? ' (atversta)' : ''}`);
-  addLog('Jūs', 'draw', `Paėmė: ${clbl(drawnCard)}${src === 'discard' ? ' (atversta)' : ''}`);
+  addLog('Jūs', 'draw', `Paėmė: ${clbl(drawnCard)}${src === 'discard' ? ' (atversta)' : ''}`, 0);
   renderAll();
 }
 
@@ -175,7 +177,7 @@ function doLay() {
   sel.forEach(c => UI.glowIds.add(c.id));
   UI.handSel = []; UI.comboTgt = -1;
   trackCombo(sel);
-  addLog('Jūs', 'lay', `Padėjo: ${sel.map(clbl).join(' ')}`);
+  addLog('Jūs', 'lay', `Padėjo: ${sel.map(clbl).join(' ')}`, 0);
   coach('good', `Padėjote: ${sel.map(clbl).join(' ')}`);
   if (!checkDraftWin()) renderAll();
 }
@@ -193,7 +195,7 @@ function doAdd() {
   g.cards.push(...sel);
   sel.forEach(c => UI.glowIds.add(c.id));
   UI.handSel = [];
-  addLog('Jūs', 'add', `Pridėjo: ${sel.map(clbl).join(' ')}`);
+  addLog('Jūs', 'add', `Pridėjo: ${sel.map(clbl).join(' ')}`, 0);
   coach('good', 'Korta pridėta.');
   if (!checkDraftWin()) renderAll();
 }
@@ -260,7 +262,7 @@ function doDiscard() {
   const fromEl = document.getElementById('hand-wrap');
   apply({ type: 'discard', cardId: discId });
   work = null; UI.handSel = []; UI.comboTgt = -1; UI.glowIds = new Set();
-  addLog('Jūs', 'disc', `Išmetė: ${clbl(card)}`);
+  addLog('Jūs', 'disc', `Išmetė: ${clbl(card)}`, 0);
   animFly(fromEl, document.getElementById('disc-wrap'), card, true, null);
   renderAll();
   if (state.roundOver) { finishRound(); return; }
@@ -334,11 +336,11 @@ function logAI(pi, a) {
   const name = state.players[pi].name;
   if (a.type === 'draw') {
     const card = state.players[pi].hand[state.players[pi].hand.length - 1];
-    addLog(name, 'draw', a.src === 'discard' ? `Paėmė ${clbl(card)} (atversta)` : 'Paėmė iš malkos');
+    addLog(name, 'draw', a.src === 'discard' ? `Paėmė ${clbl(card)} (atversta)` : 'Paėmė iš malkos', pi);
   }
-  else if (a.type === 'lay') addLog(name, 'lay', 'Padėjo kombinaciją');
-  else if (a.type === 'add') addLog(name, 'add', 'Pridėjo kortą');
-  else if (a.type === 'discard') addLog(name, 'disc', `Išmetė: ${clbl(state.discard[state.discard.length - 1])}`);
+  else if (a.type === 'lay') addLog(name, 'lay', 'Padėjo kombinaciją', pi);
+  else if (a.type === 'add') addLog(name, 'add', 'Pridėjo kortą', pi);
+  else if (a.type === 'discard') addLog(name, 'disc', `Išmetė: ${clbl(state.discard[state.discard.length - 1])}`, pi);
 }
 function skipAI() { aiSkip = true; }
 function setAIStatus(pi, msg) { const el = document.getElementById(`opp${pi - 1}status`); if (el) el.textContent = msg; }
@@ -674,20 +676,6 @@ function animFly(fromEl, toEl, card, faceUp, cb) {
   }));
   setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); if (cb) cb(); }, 700);
 }
-// Stacking action toast: appears, holds, then gradually fades over 30s (CSS).
-function pushToast(who, text) {
-  const box = document.getElementById('toasts'); if (!box) return;
-  const t = document.createElement('div');
-  t.className = 'toast' + (who === 'Jūs' ? ' t-me' : '');
-  const tp = document.createElement('span'); tp.className = 'tp'; tp.textContent = who;
-  t.appendChild(tp); t.appendChild(document.createTextNode(text || ''));
-  box.appendChild(t);
-  box.scrollTop = box.scrollHeight; // keep the newest message in view
-  while (box.children.length > 30) box.removeChild(box.firstChild); // cap the stack
-  const kill = () => { if (t.parentNode) t.parentNode.removeChild(t); };
-  t.addEventListener('animationend', kill);
-  setTimeout(kill, 30500); // fallback if animationend is missed
-}
 function clearToasts() { const b = document.getElementById('toasts'); if (b) b.innerHTML = ''; }
 
 // ═══════════════════════════════════════════════════
@@ -726,28 +714,61 @@ function showHint() {
 // ═══════════════════════════════════════════════════
 // GAME LOG (localStorage)
 // ═══════════════════════════════════════════════════
-function addLog(player, action, detail) {
-  const entry = { id: Date.now() + Math.random(), round: state.round, player, action, detail, ts: new Date().toLocaleTimeString('lt'), comment: '' };
+function addLog(player, action, detail, seat) {
+  const entry = { id: ++logSeq, round: state.round, seat: seat == null ? null : seat,
+    player, action, detail, ts: new Date().toLocaleTimeString('lt'), comment: '' };
   gameLog.push(entry);
-  pushToast(player, detail);  // transient stacking toast for every action
+  bufferLog(entry);   // queue for the database — everything is logged
   try {
     const stored = JSON.parse(localStorage.getItem('dz_game_log') || '[]');
     stored.push(entry); if (stored.length > 200) stored.splice(0, stored.length - 200);
     localStorage.setItem('dz_game_log', JSON.stringify(stored));
   } catch (e) {}
-  const lp = document.getElementById('log-pane');
-  if (lp && lp.style.display !== 'none') renderGameLog();
+  renderGameLog();
+  persist();
 }
+
+// Queue a journal entry for the DB, de-duped by id so a later comment edit
+// re-sends the same row and the server upserts the comment in place.
+function bufferLog(entry) {
+  pendingLog = pendingLog.filter(e => e.id !== entry.id);
+  pendingLog.push({ id: entry.id, round: entry.round, seat: entry.seat,
+    player: entry.player, action: entry.action, detail: entry.detail,
+    comment: entry.comment, ts: entry.ts });
+}
+// Žurnalas shows only the LAST turn of each player; older turns are hidden from
+// view (they're still logged in full to the DB). A turn is a contiguous block of
+// one player's entries, beginning at their 'draw'.
 function renderGameLog() {
   const el = document.getElementById('game-log'); if (!el) return;
-  el.innerHTML = [...gameLog].reverse().map(e => `<div class="log-entry ${e.player === 'Jūs' ? 'log-my' : 'log-ai'}">
-    <span style="color:#aaa;font-size:0.6rem">R${e.round} ${e.ts}</span> <strong>${e.player}</strong>: ${e.detail}
-    <button class="log-btn" onclick="editComment(${e.id})">💬</button>${e.comment ? `<div class="log-cmt">💬 ${e.comment}</div>` : ''}</div>`).join('');
+  const turns = [];
+  for (const e of gameLog) {
+    const last = turns[turns.length - 1];
+    if (!last || last.player !== e.player || e.action === 'draw') turns.push({ player: e.player, entries: [e] });
+    else last.entries.push(e);
+  }
+  const lastIdxByPlayer = new Map();
+  turns.forEach((t, i) => lastIdxByPlayer.set(t.player, i));
+  const show = [...lastIdxByPlayer.values()].sort((a, b) => b - a); // most recent turn first
+  el.innerHTML = show.map(i => {
+    const t = turns[i], mine = t.player === 'Jūs';
+    const lines = t.entries.map(e => `
+      <div class="log-entry ${mine ? 'log-my' : 'log-ai'}">
+        <span style="color:#aaa;font-size:0.6rem">R${e.round} ${e.ts}</span> ${e.detail}
+        <button class="log-btn" onclick="editComment(${e.id})">💬</button>
+        ${e.comment ? `<div class="log-cmt">💬 ${e.comment}</div>` : ''}
+      </div>`).join('');
+    return `<div class="log-turn"><div class="log-turn-hdr">${t.player}</div>${lines}</div>`;
+  }).join('');
 }
 function editComment(id) {
   const entry = gameLog.find(e => e.id === id); if (!entry) return;
   const cmt = prompt('Komentaras:', entry.comment || ''); if (cmt === null) return;
-  entry.comment = cmt; renderGameLog();
+  entry.comment = cmt;
+  bufferLog(entry);   // re-send this row → the DB upserts the comment
+  renderGameLog();
+  persist();
+  try { localStorage.setItem('dz_game_log', JSON.stringify(gameLog.slice(-200))); } catch (e) {}
 }
 function switchTab(tab) {
   document.getElementById('coach-pane').style.display = tab === 'coach' ? 'flex' : 'none';
@@ -854,35 +875,37 @@ function persist() {
 function saveLocal() {
   try {
     localStorage.setItem(saveKey(), JSON.stringify({
-      snapshot: serializeSave(), gameId, pendingActions, pendingCombos, updatedAt: Date.now(),
+      snapshot: serializeSave(), gameId, pendingActions, pendingCombos, pendingLog, updatedAt: Date.now(),
     }));
   } catch (e) { /* quota / private mode — cloud still covers it */ }
 }
 async function cloudSave(finished) {
   if (cloudTimer) { clearTimeout(cloudTimer); cloudTimer = null; }
   if (!state || !gameId) return;
-  const sentA = pendingActions.slice(), sentC = pendingCombos.slice();
+  const sentA = pendingActions.slice(), sentC = pendingCombos.slice(), sentL = pendingLog.slice();
   try {
     const r = await fetch('/api/resume', {
       method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(resumePayload(sentA, sentC, finished)),
+      body: JSON.stringify(resumePayload(sentA, sentC, sentL, finished)),
     });
     if (r && r.ok) {
-      // Drop only the items we actually sent (by seq); new pushes during the
-      // request stay buffered. Server writes are idempotent, so this is safe.
+      // Drop only the items we actually sent; new pushes during the request stay
+      // buffered. Server writes are idempotent, so this is safe.
       const aSeq = new Set(sentA.map(a => a.seq));
       const cKey = new Set(sentC.map(c => c.seq + ':' + c.grpIdx));
+      const lId = new Set(sentL.map(e => e.id));
       pendingActions = pendingActions.filter(a => !aSeq.has(a.seq));
       pendingCombos = pendingCombos.filter(c => !cKey.has(c.seq + ':' + c.grpIdx));
+      pendingLog = pendingLog.filter(e => !lId.has(e.id));
       saveLocal();
     }
   } catch (e) { /* offline: keep buffers; localStorage mirror already holds them */ }
 }
-function resumePayload(actions, combinations, finished) {
+function resumePayload(actions, combinations, log, finished) {
   return {
     playerId: PLAYER.id,
     game: { id: gameId, seed: baseSeed, config: state.config, mode: 'solo', round: state.round },
-    snapshot: serializeSave(), actions, combinations,
+    snapshot: serializeSave(), actions, combinations, log,
     finished: !!finished || !!state.gameOver,
   };
 }
@@ -893,7 +916,7 @@ function flushSave() {
   try {
     fetch('/api/resume', {
       method: 'PUT', keepalive: true, headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(resumePayload(pendingActions, pendingCombos, state.gameOver)),
+      body: JSON.stringify(resumePayload(pendingActions, pendingCombos, pendingLog, state.gameOver)),
     });
   } catch (e) {}
 }
@@ -940,11 +963,14 @@ function restoreGame(save) {
   gameId = save.gameId || gameId;
   pendingActions = save.pendingActions || [];
   pendingCombos = save.pendingCombos || [];
+  pendingLog = save.pendingLog || [];
+  logSeq = gameLog.reduce((m, e) => Math.max(m, e.id || 0), 0);   // continue the id sequence
   document.getElementById('wins-lbl').textContent = `🏆 ${WINS}`;
   clearToasts();
   togglePanes(false);
   coach('info', `↩ Tęsiame — ratas ${state.round}.`);
   renderAll();
+  renderGameLog();
   RESTORING = false;
   if (state.gameOver || state.roundOver) showResultPanel();
   else startTurn();
